@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ActiveXWebMark — WiX (v4/v5) installer.
+
+  Build (run from the repository root; set WIX_VERSION and AWM_EXE first):
+    wix build -o dist/ActiveXWebMark-1.2.3.msi packaging/wix/ActiveXWebMark.wxs
+
+  - WIX_VERSION: MSI version, three numeric segments (e.g. 1.2.3).
+  - AWM_EXE: absolute path to the built ActiveXWebMark.exe.
+  The CI release workflow sets both from the tag (see .github/workflows/release.yml).
+
+  Prerequisite: Microsoft Visual C++ 2015-2022 Redistributable (x64). The
+  application links the CRT dynamically (/MD). To bundle the runtime into this
+  MSI instead, add a <Merge> for Microsoft_VC143_CRT_x64.msm and reference it
+  from a <Feature> via <MergeRef>.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="ActiveXWebMark"
+           Manufacturer="ActiveXWebMark"
+           Version="$(env.WIX_VERSION)"
+           UpgradeCode="{8A2B9C4D-6E7F-4A5B-9C8D-1E2F3A4B5C6D}"
+           Scope="perMachine"
+           Language="1033">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of ActiveXWebMark is already installed." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="ActiveXWebMark" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="ActiveXWebMark" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <Component Id="MainExecutable" Guid="*">
+        <File Id="MainExe"
+              Source="$(env.AWM_EXE)"
+              KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="StartMenuShortcutComponents" Directory="ApplicationProgramsFolder">
+      <Component Id="StartMenuShortcut" Guid="*">
+        <Shortcut Id="StartMenuShortcut"
+                  Name="ActiveXWebMark"
+                  Target="[INSTALLFOLDER]ActiveXWebMark.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\ActiveXWebMark"
+                       Name="StartMenuInstalled"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="DesktopShortcutComponents" Directory="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="*">
+        <Shortcut Id="DesktopShortcut"
+                  Name="ActiveXWebMark"
+                  Target="[INSTALLFOLDER]ActiveXWebMark.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\ActiveXWebMark"
+                       Name="DesktopInstalled"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="MainFeature" Title="ActiveXWebMark" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="StartMenuShortcutComponents" />
+      <ComponentGroupRef Id="DesktopShortcutComponents" />
+    </Feature>
+  </Package>
+</Wix>

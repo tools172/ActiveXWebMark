@@ -1,0 +1,54 @@
+# ---- Build output ---------------------------------------------------------
+build/
+out/
+dist/
+x64/
+x86/
+Debug/
+Release/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+
+# ---- Object / binary artifacts -------------------------------------------
+*.obj
+*.o
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.lib
+*.exp
+*.tlog
+*.idb
+*.pch
+*.res
+*.aps
+*.lastbuildstate
+*.log
+*.cache
+
+# ---- Visual Studio --------------------------------------------------------
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.ipch
+*.ncb
+*.opendb
+*.vcxproj.user
+
+# ---- CMake -----------------------------------------------------------------
+CMakeUserPresets.json
+
+# ---- vcpkg -----------------------------------------------------------------
+vcpkg_installed/
+vcpkg-manifest-install.log
+
+# ---- Misc ------------------------------------------------------------------
+Thumbs.db
+Desktop.ini
+.DS_Store
