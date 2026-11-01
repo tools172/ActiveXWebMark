@@ -54,7 +54,7 @@ ctest --preset vs2022
 
 安装包脚本位于 `packaging/`：`wix/ActiveXWebMark.wxs`（WiX v5）、
 `nsis/ActiveXWebMark.nsi`（NSIS）。CI 通过 `vcpkg-configuration.json` 里声明的
-overlay ports（`vcpkg-ports/`）复现本机的 discount `/J` 与 Scintilla 静态化补丁。
+overlay ports（`vcpkg-ports/`）复现本机的 discount `/J`、cmark/Scintilla 静态化补丁。
 
 > 运行库依赖：程序以动态 CRT（`/MD`）链接，运行需要
 > 「Microsoft Visual C++ 2015-2022 Redistributable (x64)」，绝大多数 Windows 10/11
