@@ -25,7 +25,7 @@ jobs:
         run: cmake --preset ci
 
       - name: Build
-        run: cmake --build --preset ci --config Release
+        run: cmake --build --preset ci
 
       - name: Test
         run: ctest --preset ci
@@ -46,7 +46,7 @@ jobs:
       - name: Resolve executable path
         shell: pwsh
         run: |
-          $exe = Join-Path $env:GITHUB_WORKSPACE "build\ci\src\app\Release\ActiveXWebMark.exe"
+          $exe = Join-Path $env:GITHUB_WORKSPACE "build\ci\src\app\ActiveXWebMark.exe"
           "AWM_EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install WiX

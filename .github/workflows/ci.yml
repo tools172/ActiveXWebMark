@@ -13,11 +13,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Configure (CMake + vcpkg)
         run: cmake --preset ci
 
       - name: Build
-        run: cmake --build --preset ci --config Release
+        run: cmake --build --preset ci
 
       - name: Test
         run: ctest --preset ci
