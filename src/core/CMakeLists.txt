@@ -6,14 +6,18 @@ add_library(awm_core STATIC
     document/headingparser.cpp
     document/markdownloader.cpp
     document/documentformatregistry.cpp
+    history/recent_files.cpp
     markdown/discountmarkdownengine.cpp
     markdown/cmarkengine.cpp
+    markdown/previewhtml.cpp
+    session/document_session.cpp
     highlight/pmhhighlighter.cpp
     highlight/stylemerge.cpp
     settings/isettings.cpp
     settings/jsonfilesettings.cpp
     util/stringutil.cpp
     util/fileutil.cpp
+    util/pathutil.cpp
     # PEG Markdown Highlight parser (vendored in third_party/; C sources).
     ${CMAKE_SOURCE_DIR}/third_party/peg-markdown-highlight/pmh_parser.c
 )

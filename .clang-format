@@ -1,0 +1,21 @@
+# Keep the existing Visual Studio / WTL style: Allman braces, 4 spaces, 100 columns.
+# SortIncludes is disabled because WTL/ATL headers require a specific include order
+# (atlapp.h before the _Module declaration, atlwin.h after it).
+BasedOnStyle: Microsoft
+Language: Cpp
+IndentWidth: 4
+TabWidth: 4
+ColumnLimit: 100
+UseTab: Never
+BreakBeforeBraces: Allman
+SpaceBeforeParens: ControlStatements
+PointerAlignment: Left
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+SortIncludes: false
+IncludeBlocks: Preserve
+FixNamespaceComments: true
+AlignAfterOpenBracket: Align
+BinPackArguments: false
+BinPackParameters: false

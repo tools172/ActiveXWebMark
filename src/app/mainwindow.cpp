@@ -1,116 +1,693 @@
 #include "mainwindow.h"
 
-#include <commdlg.h>
 #include <shellapi.h>
+
+#include "apppaths.h"
 
 #include <algorithm>
 #include <filesystem>
+#include <utility>
 
+#include "dialogs.h"
+#include "doublebuffer.h"
+#include "filedialogs.h"
+#include "recentfilesdialog.h"
 #include "scintillaeditor.h"
-#include "highlight/pmhhighlighter.h"
-#include "markdown/cmarkengine.h"
+#include "util/pathutil.h"
 #include "util/stringutil.h"
+#include "version.h"
 
 namespace awm {
 
 namespace {
 
-// Wraps rendered body HTML in a minimal document with base styles.
-std::string WrapHtml(const std::string& body)
+std::wstring escapeMenuText(std::wstring text)
 {
-    return
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><base target=\"_blank\">"
-        "<style>"
-        "body{font-family:'Segoe UI',sans-serif;max-width:900px;margin:24px auto;"
-        "padding:0 24px;line-height:1.6;color:#24292f;}"
-        "h1,h2,h3,h4{border-bottom:1px solid #eee;padding-bottom:.3em;}"
-        "code{background:#f6f8fa;padding:2px 4px;border-radius:3px;font-family:Consolas,monospace;}"
-        "pre{background:#f6f8fa;padding:12px;overflow:auto;border-radius:6px;}"
-        "pre code{background:none;padding:0;}"
-        "blockquote{border-left:4px solid #d0d7de;margin:0;padding:0 1em;color:#57606a;}"
-        "table{border-collapse:collapse;}td,th{border:1px solid #d0d7de;padding:6px 12px;}"
-        "img{max-width:100%;}"
-        "</style></head><body>" + body + "</body></html>";
+    std::wstring escaped;
+    escaped.reserve(text.size() + 4);
+    for (const wchar_t ch : text) {
+        if (ch == L'&') {
+            escaped += L"&&";
+        } else {
+            escaped.push_back(ch);
+        }
+    }
+    return escaped;
+}
+
+std::wstring menuLabelForRecent(const std::wstring& path, std::size_t index)
+{
+    std::wstring label = std::to_wstring(index + 1) + L". " + escapeMenuText(fileName(path));
+    const std::wstring directory = fileDirectory(path);
+    if (!directory.empty()) {
+        label += L"  —  " + escapeMenuText(directory);
+    }
+    if (label.size() > 88) {
+        label = label.substr(0, 87) + L"…";
+    }
+    return label;
 }
 
 } // namespace
 
-MainWindow::MainWindow()
-    : registry_(DocumentFormatRegistry::createDefault())
-    , engine_(std::make_unique<CmarkEngine>())
-    , highlighter_(std::make_unique<PmhSyntaxHighlighter>())
+MainWindow::MainWindow() : registry_(DocumentFormatRegistry::createDefault())
 {
+    theme_.initialize(96);
+    settings_ = createSettings();
+    if (settings_ != nullptr) {
+        recent_.load(*settings_, "history.recentFiles");
+        viewSettings_ = LoadViewSettings(*settings_);
+        placement_ = LoadWindowPlacement(*settings_);
+    }
+    startMaximized_ = placement_.valid && placement_.maximized;
+}
+
+MainWindow::~MainWindow()
+{
+    if (mainMenu_ != nullptr) {
+        ::DestroyMenu(mainMenu_);
+        mainMenu_ = nullptr;
+        fileMenu_ = nullptr;
+        viewMenu_ = nullptr;
+        recentMenu_ = nullptr;
+    }
 }
 
 BOOL MainWindow::PreTranslateMessage(MSG* pMsg)
 {
-    // Forward keyboard messages to the preview control so it can handle
-    // accelerators such as Ctrl+C (copy selected text).
-    if (preview_ != nullptr && preview_->TranslateAccelerator(pMsg)) {
+    if (pMsg->message == WM_KEYDOWN && pMsg->wParam == VK_F1) {
+        SendCommand(cmd::kHelpAbout);
         return TRUE;
+    }
+
+    if (pMsg->message == WM_KEYDOWN || pMsg->message == WM_SYSKEYDOWN) {
+        const bool ctrl = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const bool alt = (::GetKeyState(VK_MENU) & 0x8000) != 0;
+
+        if (ctrl && alt && !shift && pMsg->wParam == L'L') {
+            SendCommand(cmd::kViewToggleSplit);
+            return TRUE;
+        }
+        if (ctrl && !alt) {
+            switch (pMsg->wParam) {
+            case L'O':
+                SendCommand(cmd::kFileOpen);
+                return TRUE;
+            case L'S':
+                SendCommand(shift ? cmd::kFileSaveAs : cmd::kFileSave);
+                return TRUE;
+            case L'W':
+                SendCommand(cmd::kFileCloseTab);
+                return TRUE;
+            case L'E':
+                SendCommand(cmd::kViewEditor);
+                return TRUE;
+            case L'B':
+                SendCommand(cmd::kViewNav);
+                return TRUE;
+            case L'L':
+                if (shift) {
+                    SendCommand(cmd::kViewToggleSplit);
+                    return TRUE;
+                }
+                break;
+            case VK_TAB:
+                CycleTab(shift ? -1 : 1);
+                return TRUE;
+            default:
+                break;
+            }
+        }
+    }
+
+    // Let the preview handle its own accelerators (copy, select all, ...).
+    if (DocumentView* view = ActiveView()) {
+        if (view->ForwardAccelerator(pMsg)) {
+            return TRUE;
+        }
     }
     return FALSE;
 }
 
-void MainWindow::CreateMenuBar()
+void MainWindow::SendCommand(int id)
 {
-    HMENU fileMenu = ::CreatePopupMenu();
-    ::AppendMenuW(fileMenu, MF_STRING, kCmdFileOpen, L"打开(&O)...\tCtrl+O");
-    ::AppendMenuW(fileMenu, MF_SEPARATOR, 0, nullptr);
-    ::AppendMenuW(fileMenu, MF_STRING, kCmdAppExit, L"退出(&X)");
+    ::SendMessageW(m_hWnd, WM_COMMAND, MAKEWPARAM(static_cast<WORD>(id), 1), 0);
+}
 
-    HMENU viewMenu = ::CreatePopupMenu();
-    ::AppendMenuW(viewMenu, MF_STRING, kCmdViewEditor, L"显示编辑器(&E)\tCtrl+E");
+DocumentView* MainWindow::ActiveView() const
+{
+    if (activeIndex_ < 0 || activeIndex_ >= static_cast<int>(views_.size())) {
+        return nullptr;
+    }
+    return views_[static_cast<std::size_t>(activeIndex_)].get();
+}
 
-    HMENU menu = ::CreateMenu();
-    ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(fileMenu), L"文件(&F)");
-    ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(viewMenu), L"视图(&V)");
-    ::SetMenu(*this, menu);
+DocumentViewServices MainWindow::MakeServices()
+{
+    DocumentViewServices services;
+    services.engine = &engine_;
+    services.highlighter = &highlighter_;
+    services.theme = &theme_;
+    services.createEditor = []() -> std::unique_ptr<IEditorView> {
+        return std::make_unique<ScintillaEditor>();
+    };
+    services.createPreview = []() -> std::unique_ptr<IPreviewView> {
+        return CreatePreviewView(PreviewEngine::Ie);
+    };
+    services.onOpenLink = [](const std::string& url) {
+        if (!url.empty()) {
+            ::ShellExecuteW(nullptr, L"open", utf8ToWide(url).c_str(), nullptr, nullptr,
+                            SW_SHOWNORMAL);
+        }
+    };
+    return services;
 }
 
 LRESULT MainWindow::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
 {
-    RECT rc = {0, 0, 0, 0};
+    theme_.initialize(::GetDpiForWindow(m_hWnd));
 
-    navTree_.Create(*this, rc, nullptr,
-                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | TVS_HASLINES | TVS_LINESATROOT |
-                        TVS_HASBUTTONS,
-                    WS_EX_CLIENTEDGE, kNavTreeId);
+    if (placement_.valid) {
+        ::SetWindowPos(m_hWnd, nullptr, placement_.x, placement_.y, placement_.width,
+                       placement_.height, SWP_NOZORDER | SWP_NOACTIVATE);
+    } else {
+        RECT work = {};
+        ::SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+        const int width = std::min(theme_.px(1180), static_cast<int>(work.right - work.left));
+        const int height = std::min(theme_.px(780), static_cast<int>(work.bottom - work.top));
+        const int x = work.left + (static_cast<int>(work.right - work.left) - width) / 2;
+        const int y = work.top + (static_cast<int>(work.bottom - work.top) - height) / 2;
+        ::SetWindowPos(m_hWnd, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
 
-    preview_ = CreatePreviewView(PreviewEngine::Ie);
-    editor_ = std::make_unique<ScintillaEditor>();
+    RECT zero = {0, 0, 0, 0};
+    tabStrip_.Create(m_hWnd, zero, 2000);
+    tabStrip_.SetTheme(&theme_);
+    tabStrip_.SetCallbacks(ui::TabStrip::Callbacks{
+        [this](int index) { ActivateTab(index); },
+        [this](int index) { CloseTab(index); },
+        [this]() { SendCommand(cmd::kFileOpen); }});
 
-    preview_->Create(*this, rc);
-    editor_->Create(*this, rc);
-    editor_->Show(false); // preview-first: editor hidden by default.
-
-    // Link external clicks to the system browser.
-    PreviewCallbacks callbacks;
-    callbacks.onLink = [](const std::string& url) {
-        ::ShellExecuteW(nullptr, L"open", utf8ToWide(url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-    };
-    preview_->SetCallbacks(std::move(callbacks));
-
-    // Re-render the preview when the editor text changes.
-    editor_->SetChangeCallback([this]() {
-        const std::string source = editor_->GetText();
-        const RenderResult result = engine_->render(source, RenderOptions{});
-        preview_->SetHtml(WrapHtml(result.bodyHtml), "");
-    });
-
-    // Set the menu last: SetMenu resizes the client area (WM_SIZE), which must
-    // only run once the preview/editor children exist.
     CreateMenuBar();
-
+    RebuildRecentMenu();
+    UpdateMenuState();
     Layout();
     return 0;
 }
 
+void MainWindow::CreateMenuBar()
+{
+    if (mainMenu_ != nullptr) {
+        return;
+    }
+
+    mainMenu_ = ::CreateMenu();
+    fileMenu_ = ::CreatePopupMenu();
+    viewMenu_ = ::CreatePopupMenu();
+    recentMenu_ = ::CreatePopupMenu();
+
+    ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileOpen, L"打开(&O)...\tCtrl+O");
+    ::AppendMenuW(fileMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(recentMenu_),
+                  L"最近打开(&R)");
+    ::AppendMenuW(fileMenu_, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileSave, L"保存(&S)\tCtrl+S");
+    ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileSaveAs, L"另存为(&A)...\tCtrl+Shift+S");
+    ::AppendMenuW(fileMenu_, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileCloseTab, L"关闭标签(&W)\tCtrl+W");
+    ::AppendMenuW(fileMenu_, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileExit, L"退出(&X)");
+
+    ::AppendMenuW(viewMenu_, MF_STRING, cmd::kViewEditor, L"显示编辑器(&E)\tCtrl+E");
+    ::AppendMenuW(viewMenu_, MF_STRING, cmd::kViewNav, L"显示导航目录(&B)\tCtrl+B");
+    ::AppendMenuW(viewMenu_, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(viewMenu_, MF_STRING, cmd::kViewSplitSideBySide, L"左右分屏(&L)");
+    ::AppendMenuW(viewMenu_, MF_STRING, cmd::kViewSplitStacked, L"上下分屏(&T)");
+    ::AppendMenuW(viewMenu_, MF_STRING, cmd::kViewToggleSplit,
+                  L"切换分屏方向(&S)\tCtrl+Shift+L");
+
+    HMENU helpMenu = ::CreatePopupMenu();
+    ::AppendMenuW(helpMenu, MF_STRING, cmd::kHelpAbout, L"关于 ActiveXWebMark(&A)...\tF1");
+
+    ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(fileMenu_), L"文件(&F)");
+    ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(viewMenu_), L"视图(&V)");
+    ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(helpMenu), L"帮助(&H)");
+    ::SetMenu(m_hWnd, mainMenu_);
+}
+
+void MainWindow::RebuildRecentMenu()
+{
+    if (recentMenu_ == nullptr) {
+        return;
+    }
+
+    while (::GetMenuItemCount(recentMenu_) > 0) {
+        ::DeleteMenu(recentMenu_, 0, MF_BYPOSITION);
+    }
+
+    const std::vector<std::wstring> page = recent_.menuPage();
+    if (page.empty()) {
+        ::AppendMenuW(recentMenu_, MF_STRING | MF_GRAYED, 0, L"（暂无记录）");
+    } else {
+        for (std::size_t i = 0; i < page.size(); ++i) {
+            const std::wstring label = menuLabelForRecent(page[i], i);
+            ::AppendMenuW(recentMenu_, MF_STRING, cmd::kRecentBase + static_cast<int>(i),
+                          label.c_str());
+        }
+        if (recent_.size() > page.size()) {
+            ::AppendMenuW(recentMenu_, MF_SEPARATOR, 0, nullptr);
+            ::AppendMenuW(recentMenu_, MF_STRING, cmd::kRecentMore, L"更多(&M)...");
+        }
+        ::AppendMenuW(recentMenu_, MF_SEPARATOR, 0, nullptr);
+        ::AppendMenuW(recentMenu_, MF_STRING, cmd::kRecentClear, L"清除最近记录(&C)");
+    }
+
+    if (::IsWindow(m_hWnd)) {
+        ::DrawMenuBar(m_hWnd);
+    }
+}
+
+void MainWindow::UpdateMenuState()
+{
+    if (viewMenu_ == nullptr) {
+        return;
+    }
+
+    ::CheckMenuItem(viewMenu_, cmd::kViewEditor,
+                    MF_BYCOMMAND |
+                        (viewSettings_.showEditor ? MF_CHECKED : MF_UNCHECKED));
+    ::CheckMenuItem(viewMenu_, cmd::kViewNav,
+                    MF_BYCOMMAND | (viewSettings_.showNav ? MF_CHECKED : MF_UNCHECKED));
+    ::CheckMenuRadioItem(
+        viewMenu_, cmd::kViewSplitSideBySide, cmd::kViewSplitStacked,
+        viewSettings_.split == ui::Orientation::Horizontal ? cmd::kViewSplitSideBySide
+                                                           : cmd::kViewSplitStacked,
+        MF_BYCOMMAND);
+
+    const bool hasView = ActiveView() != nullptr;
+    const UINT enabled = hasView ? MF_ENABLED : MF_GRAYED;
+    ::EnableMenuItem(fileMenu_, cmd::kFileSave, MF_BYCOMMAND | enabled);
+    ::EnableMenuItem(fileMenu_, cmd::kFileSaveAs, MF_BYCOMMAND | enabled);
+    ::EnableMenuItem(fileMenu_, cmd::kFileCloseTab, MF_BYCOMMAND | enabled);
+}
+
+void MainWindow::UpdateTabStrip()
+{
+    if (!tabStrip_.IsWindow()) {
+        return;
+    }
+
+    std::vector<ui::TabStrip::Item> items;
+    items.reserve(views_.size());
+    for (const std::unique_ptr<DocumentView>& view : views_) {
+        items.push_back(ui::TabStrip::Item{view->session().title(), view->session().path(),
+                                           view->session().isDirty()});
+    }
+    tabStrip_.SetItems(std::move(items), activeIndex_);
+}
+
+void MainWindow::UpdateWindowTitle()
+{
+    std::wstring title = L"ActiveXWebMark";
+    if (DocumentView* view = ActiveView()) {
+        title = view->session().title();
+        if (view->session().isDirty()) {
+            title = L"*" + title;
+        }
+        title += L" - ActiveXWebMark";
+    }
+    SetWindowText(title.c_str());
+}
+
+void MainWindow::Layout()
+{
+    if (!::IsWindow(m_hWnd) || !tabStrip_.IsWindow()) {
+        return;
+    }
+
+    RECT client = {};
+    GetClientRect(&client);
+
+    if (views_.empty()) {
+        tabStrip_.ShowWindow(SW_HIDE);
+        Invalidate(FALSE);
+        return;
+    }
+
+    tabStrip_.ShowWindow(SW_SHOW);
+    const int stripHeight = tabStrip_.preferredHeight();
+    tabStrip_.MoveWindow(0, 0, static_cast<int>(client.right), stripHeight, TRUE);
+
+    RECT content{0, stripHeight, client.right, client.bottom};
+    for (std::size_t i = 0; i < views_.size(); ++i) {
+        if (static_cast<int>(i) == activeIndex_) {
+            views_[i]->ShowWindow(SW_SHOW);
+            views_[i]->SetBounds(content);
+        } else {
+            views_[i]->ShowWindow(SW_HIDE);
+        }
+    }
+    Invalidate(FALSE);
+}
+
+int MainWindow::FindTabByPath(const std::wstring& path) const
+{
+    for (std::size_t i = 0; i < views_.size(); ++i) {
+        if (samePath(views_[i]->session().path(), path)) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+int MainWindow::OpenFileInternal(const std::wstring& path, bool activate)
+{
+    if (path.empty()) {
+        return -1;
+    }
+
+    const std::wstring normalized = normalizePath(path);
+    const int existing = FindTabByPath(normalized);
+    if (existing >= 0) {
+        if (settings_ != nullptr) {
+            recent_.add(normalized);
+            recent_.save(*settings_, "history.recentFiles");
+            RebuildRecentMenu();
+        }
+        if (activate) {
+            ActivateTab(existing);
+        }
+        return existing;
+    }
+
+    std::error_code ec;
+    std::unique_ptr<IDocument> document = registry_.load(normalized, ec);
+    if (!document) {
+        std::wstring message = L"无法打开文件：\n" + normalized;
+        if (ec) {
+            message += L"\n\n" + utf8ToWide(ec.message());
+        }
+        ShowError(m_hWnd, message);
+        if (settings_ != nullptr && !std::filesystem::exists(normalized)) {
+            recent_.remove(normalized);
+            recent_.save(*settings_, "history.recentFiles");
+            RebuildRecentMenu();
+        }
+        return -1;
+    }
+
+    auto session = DocumentSession::fromDocument(normalized, *document);
+    auto view = std::make_unique<DocumentView>();
+    view->SetCallbacks(DocumentViewCallbacks{
+        [this](DocumentView&) {
+            UpdateTabStrip();
+            UpdateWindowTitle();
+        },
+        [this](const ViewSettings& settings) {
+            viewSettings_ = settings;
+            ApplyViewSettingsToAll();
+            UpdateMenuState();
+        }});
+
+    RECT zero = {0, 0, 0, 0};
+    if (!view->Create(m_hWnd, zero, std::move(session), MakeServices())) {
+        ShowError(m_hWnd, L"无法创建文档视图。");
+        return -1;
+    }
+    view->SetViewSettings(viewSettings_);
+    views_.push_back(std::move(view));
+
+    const int index = static_cast<int>(views_.size()) - 1;
+    if (settings_ != nullptr) {
+        recent_.add(normalized);
+        recent_.save(*settings_, "history.recentFiles");
+        RebuildRecentMenu();
+    }
+    UpdateTabStrip();
+
+    if (activate) {
+        ActivateTab(index);
+    }
+    return index;
+}
+
+void MainWindow::OpenFile(const std::wstring& path)
+{
+    OpenFileInternal(path, true);
+}
+
+void MainWindow::OpenFiles(const std::vector<std::wstring>& paths)
+{
+    if (paths.empty()) {
+        return;
+    }
+
+    int firstOpened = -1;
+    int firstNew = -1;
+    for (const std::wstring& path : paths) {
+        // Indices at or beyond the current size are tabs created by this call.
+        const std::size_t before = views_.size();
+        const int index = OpenFileInternal(path, false);
+        if (index < 0) {
+            continue;
+        }
+        if (firstOpened < 0) {
+            firstOpened = index;
+        }
+        if (static_cast<std::size_t>(index) >= before && firstNew < 0) {
+            firstNew = index;
+        }
+    }
+
+    const int target = firstNew >= 0 ? firstNew : firstOpened;
+    if (target >= 0) {
+        ActivateTab(target);
+    } else if (activeIndex_ < 0 && !views_.empty()) {
+        ActivateTab(0);
+    }
+}
+
+void MainWindow::ActivateTab(int index)
+{
+    if (index < 0 || index >= static_cast<int>(views_.size())) {
+        return;
+    }
+
+    if (index == activeIndex_) {
+        Layout();
+        if (DocumentView* view = ActiveView()) {
+            view->FocusPrimaryPane();
+        }
+        return;
+    }
+
+    if (DocumentView* previous = ActiveView()) {
+        previous->Deactivate();
+    }
+
+    activeIndex_ = index;
+    DocumentView* view = ActiveView();
+    view->SetViewSettings(viewSettings_);
+
+    RECT client = {};
+    GetClientRect(&client);
+    const int stripHeight = tabStrip_.preferredHeight();
+    view->SetBounds(RECT{0, stripHeight, client.right, client.bottom});
+    view->Activate();
+
+    tabStrip_.SetActiveIndex(index);
+    Layout();
+    UpdateWindowTitle();
+    UpdateMenuState();
+}
+
+void MainWindow::CycleTab(int delta)
+{
+    if (views_.size() < 2 || activeIndex_ < 0) {
+        return;
+    }
+    const int count = static_cast<int>(views_.size());
+    int next = (activeIndex_ + delta) % count;
+    if (next < 0) {
+        next += count;
+    }
+    ActivateTab(next);
+}
+
+void MainWindow::CloseTab(int index)
+{
+    if (index < 0 || index >= static_cast<int>(views_.size())) {
+        return;
+    }
+
+    DocumentView* view = views_[static_cast<std::size_t>(index)].get();
+    if (!ConfirmClose(*view)) {
+        return;
+    }
+
+    const bool wasActive = index == activeIndex_;
+    if (wasActive) {
+        view->Deactivate();
+    }
+    views_.erase(views_.begin() + index);
+
+    if (views_.empty()) {
+        activeIndex_ = -1;
+        UpdateTabStrip();
+        UpdateWindowTitle();
+        UpdateMenuState();
+        Layout();
+        Invalidate(FALSE);
+        return;
+    }
+
+    if (wasActive) {
+        activeIndex_ = -1;
+        UpdateTabStrip();
+        ActivateTab(std::min(index, static_cast<int>(views_.size()) - 1));
+    } else {
+        if (index < activeIndex_) {
+            --activeIndex_;
+        }
+        UpdateTabStrip();
+        UpdateWindowTitle();
+        UpdateMenuState();
+        Layout();
+    }
+}
+
+bool MainWindow::ConfirmClose(DocumentView& view)
+{
+    if (!view.session().isDirty()) {
+        return true;
+    }
+
+    switch (AskSaveChanges(m_hWnd, view.session().title())) {
+    case SaveDecision::Save:
+        return SaveView(view);
+    case SaveDecision::Discard:
+        return true;
+    case SaveDecision::Cancel:
+    default:
+        return false;
+    }
+}
+
+bool MainWindow::ConfirmCloseAll()
+{
+    for (const std::unique_ptr<DocumentView>& view : views_) {
+        if (!ConfirmClose(*view)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool MainWindow::SaveView(DocumentView& view)
+{
+    if (!view.session().hasPath()) {
+        return SaveViewAs(view);
+    }
+
+    std::error_code ec;
+    if (!view.Save(ec)) {
+        ShowError(m_hWnd, L"保存失败：\n" + view.session().path() + L"\n\n" +
+                              utf8ToWide(ec.message()));
+        return false;
+    }
+
+    if (settings_ != nullptr) {
+        recent_.add(view.session().path());
+        recent_.save(*settings_, "history.recentFiles");
+        RebuildRecentMenu();
+    }
+    UpdateTabStrip();
+    UpdateWindowTitle();
+    return true;
+}
+
+bool MainWindow::SaveViewAs(DocumentView& view)
+{
+    const std::wstring suggested =
+        view.session().hasPath() ? view.session().path() : view.session().title() + L".md";
+    const std::wstring path = ShowSaveMarkdownDialog(m_hWnd, suggested);
+    if (path.empty()) {
+        return false;
+    }
+
+    std::error_code ec;
+    if (!view.SaveAs(path, ec)) {
+        ShowError(m_hWnd, L"保存失败：\n" + path + L"\n\n" + utf8ToWide(ec.message()));
+        return false;
+    }
+
+    if (settings_ != nullptr) {
+        recent_.add(view.session().path());
+        recent_.save(*settings_, "history.recentFiles");
+        RebuildRecentMenu();
+    }
+    UpdateTabStrip();
+    UpdateWindowTitle();
+    return true;
+}
+
+bool MainWindow::SaveActive()
+{
+    DocumentView* view = ActiveView();
+    return view != nullptr && SaveView(*view);
+}
+
+bool MainWindow::SaveActiveAs()
+{
+    DocumentView* view = ActiveView();
+    return view != nullptr && SaveViewAs(*view);
+}
+
+void MainWindow::ApplyViewSettingsToAll()
+{
+    for (const std::unique_ptr<DocumentView>& view : views_) {
+        view->SetViewSettings(viewSettings_);
+    }
+    Layout();
+}
+
+void MainWindow::SaveSettings()
+{
+    if (settings_ == nullptr) {
+        return;
+    }
+    SaveViewSettings(*settings_, viewSettings_);
+    recent_.save(*settings_, "history.recentFiles");
+    SaveWindowPlacement(*settings_, m_hWnd);
+}
+
 LRESULT MainWindow::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
 {
-    editor_.reset();
-    preview_.reset();
+    SaveSettings();
+    views_.clear();
+    activeIndex_ = -1;
+
+    if (mainMenu_ != nullptr) {
+        ::DestroyMenu(mainMenu_);
+        mainMenu_ = nullptr;
+        fileMenu_ = nullptr;
+        viewMenu_ = nullptr;
+        recentMenu_ = nullptr;
+    }
+
     ::PostQuitMessage(0);
+    return 0;
+}
+
+LRESULT MainWindow::OnClose(UINT, WPARAM, LPARAM, BOOL&)
+{
+    if (!ConfirmCloseAll()) {
+        return 0;
+    }
+
+    views_.clear();
+    activeIndex_ = -1;
+    DestroyWindow();
     return 0;
 }
 
@@ -120,128 +697,235 @@ LRESULT MainWindow::OnSize(UINT, WPARAM, LPARAM, BOOL&)
     return 0;
 }
 
+LRESULT MainWindow::OnPaint(UINT, WPARAM, LPARAM, BOOL&)
+{
+    PAINTSTRUCT ps = {};
+    HDC dc = BeginPaint(&ps);
+
+    RECT client = {};
+    GetClientRect(&client);
+    if (client.right <= 0 || client.bottom <= 0) {
+        EndPaint(&ps);
+        return 0;
+    }
+
+    ui::DoubleBuffer buffer(dc, static_cast<int>(client.right),
+                            static_cast<int>(client.bottom));
+    HDC target = buffer.valid() ? buffer.dc() : dc;
+
+    const ui::Palette& palette = theme_.palette();
+    HBRUSH brush = ::CreateSolidBrush(ui::ToColorRef(palette.windowBg));
+    if (brush != nullptr) {
+        ::FillRect(target, &client, brush);
+        ::DeleteObject(brush);
+    }
+
+    if (views_.empty()) {
+        PaintWelcome(target, client);
+    }
+
+    if (buffer.valid()) {
+        buffer.present();
+    }
+
+    EndPaint(&ps);
+    return 0;
+}
+
+void MainWindow::PaintWelcome(HDC dc, const RECT& client)
+{
+    const ui::Palette& palette = theme_.palette();
+    const int center = client.top + (client.bottom - client.top) / 2;
+
+    RECT titleRect{client.left, center - theme_.px(84), client.right, center - theme_.px(36)};
+    RECT subtitleRect{client.left, center - theme_.px(16), client.right, center + theme_.px(18)};
+    RECT hintRect{client.left, center + theme_.px(34), client.right, center + theme_.px(58)};
+
+    const int saved = ::SaveDC(dc);
+    ::SetBkMode(dc, TRANSPARENT);
+
+    ::SelectObject(dc, theme_.titleFont());
+    ::SetTextColor(dc, ui::ToColorRef(palette.textPrimary));
+    ::DrawTextW(dc, L"ActiveXWebMark", -1, &titleRect,
+                DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+
+    ::SelectObject(dc, theme_.uiFont());
+    ::SetTextColor(dc, ui::ToColorRef(palette.textSecondary));
+    ::DrawTextW(dc, L"打开 Markdown 文件开始阅读", -1, &subtitleRect,
+                DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+
+    ::SelectObject(dc, theme_.smallFont());
+    const std::wstring hint = L"v" + utf8ToWide(version()) +
+                              L"  ·  按 Ctrl+O 打开文件  ·  可同时打开多个文件";
+    ::DrawTextW(dc, hint.c_str(), -1, &hintRect,
+                DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+
+    ::RestoreDC(dc, saved);
+}
+
+LRESULT MainWindow::OnEraseBkgnd(UINT, WPARAM, LPARAM, BOOL&)
+{
+    return 1;
+}
+
+LRESULT MainWindow::OnGetMinMaxInfo(UINT, WPARAM, LPARAM lParam, BOOL&)
+{
+    auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
+    info->ptMinTrackSize.x = theme_.px(760);
+    info->ptMinTrackSize.y = theme_.px(480);
+    return 0;
+}
+
+LRESULT MainWindow::OnDpiChanged(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
+{
+    theme_.setDpi(LOWORD(wParam));
+
+    auto* suggested = reinterpret_cast<RECT*>(lParam);
+    if (suggested != nullptr) {
+        ::SetWindowPos(m_hWnd, nullptr, suggested->left, suggested->top,
+                       suggested->right - suggested->left, suggested->bottom - suggested->top,
+                       SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    tabStrip_.OnDpiChanged();
+    for (const std::unique_ptr<DocumentView>& view : views_) {
+        view->OnDpiChanged();
+    }
+    Layout();
+    return 0;
+}
+
+LRESULT MainWindow::OnInitMenuPopup(UINT, WPARAM, LPARAM, BOOL&)
+{
+    UpdateMenuState();
+    return 0;
+}
+
 LRESULT MainWindow::OnFileOpen(WORD, WORD, HWND, BOOL&)
 {
-    wchar_t buffer[MAX_PATH] = {};
-    OPENFILENAMEW ofn = {};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = *this;
-    ofn.lpstrFilter = L"Markdown 文件 (*.md;*.markdown;*.mdown)\0*.md;*.markdown;*.mdown\0"
-                      L"所有文件 (*.*)\0*.*\0";
-    ofn.lpstrFile = buffer;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    const std::vector<std::wstring> paths = ShowOpenMarkdownDialog(m_hWnd);
+    OpenFiles(paths);
+    return 0;
+}
 
-    if (::GetOpenFileNameW(&ofn)) {
-        OpenFile(buffer);
-    }
+LRESULT MainWindow::OnFileSave(WORD, WORD, HWND, BOOL&)
+{
+    SaveActive();
+    return 0;
+}
+
+LRESULT MainWindow::OnFileSaveAs(WORD, WORD, HWND, BOOL&)
+{
+    SaveActiveAs();
+    return 0;
+}
+
+LRESULT MainWindow::OnFileCloseTab(WORD, WORD, HWND, BOOL&)
+{
+    CloseTab(activeIndex_);
+    return 0;
+}
+
+LRESULT MainWindow::OnFileExit(WORD, WORD, HWND, BOOL&)
+{
+    ::SendMessageW(m_hWnd, WM_CLOSE, 0, 0);
     return 0;
 }
 
 LRESULT MainWindow::OnViewEditor(WORD, WORD, HWND, BOOL&)
 {
-    editorVisible_ = !editorVisible_;
-    editor_->Show(editorVisible_);
-    Layout();
-    return 0;
-}
-
-LRESULT MainWindow::OnAppExit(WORD, WORD, HWND, BOOL&)
-{
-    DestroyWindow();
-    return 0;
-}
-
-LRESULT MainWindow::OnNavSelChanged(int, LPNMHDR, BOOL&)
-{
-    const HTREEITEM item = navTree_.GetSelectedItem();
-    if (item != nullptr) {
-        NavigateTo(static_cast<size_t>(navTree_.GetItemData(item)));
+    viewSettings_.showEditor = !viewSettings_.showEditor;
+    ApplyViewSettingsToAll();
+    UpdateMenuState();
+    if (DocumentView* view = ActiveView()) {
+        view->FocusPrimaryPane();
     }
     return 0;
 }
 
-void MainWindow::OpenFile(const std::wstring& path)
+LRESULT MainWindow::OnViewNav(WORD, WORD, HWND, BOOL&)
 {
-    std::error_code ec;
-    auto doc = registry_.load(path, ec);
-    if (!doc) {
-        const std::string msg = "无法打开该文件:\n" + wideToUtf8(path) + "\n错误码: " + ec.message();
-        ::MessageBoxW(*this, utf8ToWide(msg).c_str(), L"ActiveXWebMark", MB_ICONERROR);
-        return;
+    viewSettings_.showNav = !viewSettings_.showNav;
+    ApplyViewSettingsToAll();
+    UpdateMenuState();
+    if (DocumentView* view = ActiveView()) {
+        view->FocusPrimaryPane();
     }
-
-    document_ = std::move(doc);
-    ::SetWindowTextW(*this, (utf8ToWide(document_->title()) + L" - ActiveXWebMark").c_str());
-    RenderDocument();
+    return 0;
 }
 
-void MainWindow::Layout()
+LRESULT MainWindow::OnViewSplitSideBySide(WORD, WORD, HWND, BOOL&)
 {
-    RECT client;
-    GetClientRect(&client);
-    const int width = client.right - client.left;
-    const int height = client.bottom - client.top;
-
-    const int navWidth = std::min(300, width / 4);
-    if (navTree_.IsWindow()) {
-        navTree_.MoveWindow(0, 0, navWidth, height, TRUE);
+    viewSettings_.split = ui::Orientation::Horizontal;
+    viewSettings_.showEditor = true;
+    ApplyViewSettingsToAll();
+    UpdateMenuState();
+    if (DocumentView* view = ActiveView()) {
+        view->FocusPrimaryPane();
     }
-
-    if (preview_ == nullptr) {
-        return;
-    }
-
-    const int rightLeft = navWidth;
-    if (editorVisible_ && editor_ != nullptr) {
-        const int half = height / 2;
-        preview_->SetBounds(RECT{rightLeft, 0, width, half});
-        editor_->SetBounds(RECT{rightLeft, half, width, height});
-    } else {
-        preview_->SetBounds(RECT{rightLeft, 0, width, height});
-    }
+    return 0;
 }
 
-void MainWindow::BuildNavTree(const Outline& outline)
+LRESULT MainWindow::OnViewSplitStacked(WORD, WORD, HWND, BOOL&)
 {
-    navTree_.DeleteAllItems();
-    for (size_t i = 0; i < outline.size(); ++i) {
-        std::wstring text;
-        if (outline[i].level > 1) {
-            text.assign(static_cast<size_t>((outline[i].level - 1) * 2), L' ');
-        }
-        text += utf8ToWide(outline[i].text);
-
-        const HTREEITEM item = navTree_.InsertItem(text.c_str(), TVI_ROOT, TVI_LAST);
-        navTree_.SetItemData(item, static_cast<DWORD_PTR>(i));
+    viewSettings_.split = ui::Orientation::Vertical;
+    viewSettings_.showEditor = true;
+    ApplyViewSettingsToAll();
+    UpdateMenuState();
+    if (DocumentView* view = ActiveView()) {
+        view->FocusPrimaryPane();
     }
+    return 0;
 }
 
-void MainWindow::RenderDocument()
+LRESULT MainWindow::OnViewToggleSplit(WORD, WORD, HWND, BOOL&)
 {
-    if (document_ == nullptr) {
-        return;
+    viewSettings_.split = viewSettings_.split == ui::Orientation::Horizontal
+                              ? ui::Orientation::Vertical
+                              : ui::Orientation::Horizontal;
+    viewSettings_.showEditor = true;
+    ApplyViewSettingsToAll();
+    UpdateMenuState();
+    if (DocumentView* view = ActiveView()) {
+        view->FocusPrimaryPane();
     }
-
-    const RenderResult result = engine_->render(document_->markdownSource(), RenderOptions{});
-    currentOutline_ = result.outline;
-    preview_->SetHtml(WrapHtml(result.bodyHtml), "");
-
-    editor_->SetText(document_->markdownSource());
-    editor_->ApplyHighlighting(highlighter_->highlight(document_->markdownSource()));
-
-    BuildNavTree(currentOutline_);
+    return 0;
 }
 
-void MainWindow::NavigateTo(size_t outlineIndex)
+LRESULT MainWindow::OnRecentFile(WORD, WORD wID, HWND, BOOL&)
 {
-    if (outlineIndex >= currentOutline_.size()) {
-        return;
+    const int index = static_cast<int>(wID) - cmd::kRecentBase;
+    const std::vector<std::wstring> page = recent_.menuPage();
+    if (index >= 0 && index < static_cast<int>(page.size())) {
+        OpenFile(page[static_cast<std::size_t>(index)]);
     }
+    return 0;
+}
 
-    const OutlineItem& heading = currentOutline_[outlineIndex];
-    preview_->ScrollToAnchor(heading.anchor);
-    editor_->GotoLine(heading.line);
+LRESULT MainWindow::OnRecentMore(WORD, WORD, HWND, BOOL&)
+{
+    const std::wstring selected =
+        RecentFilesDialog::ShowModal(m_hWnd, recent_.entries(), recent_.pageSize());
+    if (!selected.empty()) {
+        OpenFile(selected);
+    }
+    return 0;
+}
+
+LRESULT MainWindow::OnRecentClear(WORD, WORD, HWND, BOOL&)
+{
+    recent_.clear();
+    if (settings_ != nullptr) {
+        recent_.save(*settings_, "history.recentFiles");
+    }
+    RebuildRecentMenu();
+    return 0;
+}
+
+LRESULT MainWindow::OnHelpAbout(WORD, WORD, HWND, BOOL&)
+{
+    ShowAboutDialog(m_hWnd);
+    return 0;
 }
 
 } // namespace awm

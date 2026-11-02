@@ -38,6 +38,7 @@ std::unique_ptr<IDocument> MarkdownLoader::load(const std::wstring& path, std::e
     }
 
     Outline outline = extractHeadings(*contents);
+    makeAnchorsUnique(outline);
 
     // Title: first H1 heading, else the file name (without extension).
     std::string title;

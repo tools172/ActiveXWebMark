@@ -48,3 +48,17 @@ TEST(CmarkEngine, HeadingIdsMatchOutlineAnchors)
             << "heading \"" << item.text << "\" should emit " << expected;
     }
 }
+
+TEST(CmarkEngine, DuplicateHeadingsGetUniqueAnchors)
+{
+    const RenderResult result = render("# Same\n\n## Same\n\n### Same\n");
+    ASSERT_EQ(result.outline.size(), 3u);
+    EXPECT_EQ(result.outline[0].anchor, "same");
+    EXPECT_EQ(result.outline[1].anchor, "same-1");
+    EXPECT_EQ(result.outline[2].anchor, "same-2");
+
+    for (const OutlineItem& item : result.outline) {
+        const std::string expected = "id=\"" + item.anchor + "\"";
+        EXPECT_NE(result.bodyHtml.find(expected), std::string::npos);
+    }
+}

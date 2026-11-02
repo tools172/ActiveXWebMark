@@ -1,8 +1,8 @@
 ﻿; ActiveXWebMark — NSIS installer script.
 ;
 ; Build from anywhere:
-;   makensis /DVERSION=0.1.0 packaging/nsis/ActiveXWebMark.nsi
-; Output: dist\ActiveXWebMark-0.1.0-setup.exe (at the repository root)
+;   makensis /DVERSION=0.2.0 packaging/nsis/ActiveXWebMark.nsi
+; Output: dist\ActiveXWebMark-0.2.0-setup.exe (at the repository root)
 ;
 ; NSIS resolves relative paths against this script's directory (packaging/nsis),
 ; so "..\.." reaches the repository root. CI overrides EXE/OUTDIR with absolute

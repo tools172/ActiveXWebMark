@@ -114,6 +114,7 @@ RenderResult CmarkEngine::render(const std::string& markdown, const RenderOption
 
     if (document != nullptr) {
         result.outline = extractOutline(document);
+        makeAnchorsUnique(result.outline);
 
         char* html = cmark_render_html(document, CMARK_OPT_UNSAFE);
         if (html != nullptr) {

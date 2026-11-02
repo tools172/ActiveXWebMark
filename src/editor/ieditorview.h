@@ -20,19 +20,38 @@ public:
 
     virtual bool Create(HWND parent, const RECT& rc) = 0;
 
+    /// Native window of the editor (used to route parent notifications).
+    virtual HWND hwnd() const = 0;
+
+    /// Handles a WM_NOTIFY forwarded by the editor's parent window.
+    ///
+    /// Scintilla sends SCN_MODIFIED / SCN_UPDATEUI to its parent, not to its
+    /// own window procedure, so the host container must forward them here.
+    virtual void HandleHostNotification(LPNMHDR header) = 0;
+
     virtual void SetBounds(const RECT& rc) = 0;
     virtual void Show(bool visible) = 0;
 
     virtual void SetText(const std::string& utf8) = 0;
     virtual std::string GetText() const = 0;
 
-    /// Applies semantic highlighting spans (byte offsets into the source).
-    virtual void ApplyHighlighting(const std::vector<StyleSpan>& spans) = 0;
+    /// Applies semantic highlighting spans (byte offsets into `source`).
+    ///
+    /// Passing the source avoids a second full-buffer round trip through the
+    /// editor after every render.
+    virtual void ApplyHighlighting(const std::string& source,
+                                   const std::vector<StyleSpan>& spans) = 0;
 
     /// Moves the caret to a 1-based line (used by TOC navigation).
     virtual void GotoLine(int line) = 0;
 
     virtual void SetReadOnly(bool readOnly) = 0;
+
+    /// Updates DPI-dependent fonts/margins (1.0 = 96 DPI).
+    virtual void SetDpiScale(double scale) = 0;
+
+    /// Gives keyboard focus to the text area.
+    virtual void Focus() = 0;
 
     /// Invoked when the user edits the document.
     virtual void SetChangeCallback(std::function<void()> callback) = 0;

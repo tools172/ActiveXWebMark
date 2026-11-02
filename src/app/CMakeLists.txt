@@ -2,6 +2,12 @@
 add_executable(awm_app WIN32
     main.cpp
     mainwindow.cpp
+    documentview.cpp
+    apppaths.cpp
+    appsettings.cpp
+    dialogs.cpp
+    filedialogs.cpp
+    recentfilesdialog.cpp
 )
 
 # The product executable is named ActiveXWebMark.exe regardless of the CMake target name.
@@ -12,4 +18,14 @@ target_include_directories(awm_app PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(awm_app PRIVATE awm_core awm_editor awm_preview)
+target_link_libraries(awm_app PRIVATE
+    awm_core
+    awm_editor
+    awm_preview
+    awm_ui
+    comdlg32
+    shell32
+    shlwapi
+    ole32
+    oleaut32
+)

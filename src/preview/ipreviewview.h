@@ -30,10 +30,16 @@ public:
     virtual ~IPreviewView() = default;
 
     virtual bool Create(HWND host, const RECT& rc) = 0;
+    /// Destroys the native control and unhooks events. Safe to call twice.
     virtual void Destroy() = 0;
     virtual void SetBounds(const RECT& rc) = 0;
     virtual void Show(bool visible) = 0;
 
+    /// Replaces the rendered document.
+    ///
+    /// Implementations may apply the HTML asynchronously (the IE control is
+    /// ready some time after creation); callers must not assume the new HTML
+    /// is visible when this returns.
     virtual void SetHtml(const std::string& html, const std::string& baseUrl) = 0;
     virtual void SetZoom(int percent) = 0;
     /// Navigates the preview to a section anchor (for TOC navigation).
@@ -42,6 +48,9 @@ public:
     virtual bool RunJavaScript(const std::string& script) = 0;
 
     virtual void SetCallbacks(PreviewCallbacks callbacks) = 0;
+
+    /// Gives keyboard focus to the preview surface.
+    virtual void Focus() = 0;
 
     /// Forwards a keyboard message to the underlying control so it can handle
     /// accelerators (e.g. Ctrl+C to copy). Returns true if the message was

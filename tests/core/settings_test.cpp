@@ -26,7 +26,7 @@ public:
         std::filesystem::remove(path_, ec);
     }
 
-    std::string path() const { return path_.string(); }
+    const std::filesystem::path& path() const { return path_; }
 
 private:
     std::filesystem::path path_;

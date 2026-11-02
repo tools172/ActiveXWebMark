@@ -61,3 +61,25 @@ TEST(SlugifyAnchor, DropsPunctuation)
 {
     EXPECT_EQ(slugifyAnchor("Hi (there)!"), "hi-there");
 }
+
+TEST(SlugifyAnchor, FallsBackForPunctuationOnlyHeading)
+{
+    EXPECT_EQ(slugifyAnchor("!!!"), "section");
+}
+
+TEST(MakeAnchorsUnique, SuffixesDuplicatesAndAvoidsLiteralCollisions)
+{
+    Outline outline(3);
+    outline[0].text = "Foo";
+    outline[0].anchor = "foo";
+    outline[1].text = "Foo";
+    outline[1].anchor = "foo";
+    outline[2].text = "Foo 1";
+    outline[2].anchor = "foo-1";
+
+    makeAnchorsUnique(outline);
+
+    EXPECT_EQ(outline[0].anchor, "foo");
+    EXPECT_EQ(outline[1].anchor, "foo-2");
+    EXPECT_EQ(outline[2].anchor, "foo-1");
+}

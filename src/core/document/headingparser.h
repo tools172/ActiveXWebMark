@@ -19,4 +19,10 @@ Outline extractHeadings(const std::string& markdown);
 /// punctuation is dropped, and non-ASCII (UTF-8) bytes are preserved verbatim.
 std::string slugifyAnchor(const std::string& headingText);
 
+/// Makes every anchor in `outline` unique, appending -1, -2, ... to duplicates.
+///
+/// Markdown allows repeated heading text; without this, every outline entry
+/// would resolve to the first matching id in the rendered preview.
+void makeAnchorsUnique(Outline& outline);
+
 } // namespace awm
