@@ -23,8 +23,18 @@ add_test(NAME awm_core_tests COMMAND awm_core_tests)
 add_executable(awm_layout_tests
     layout/geometry_test.cpp
     layout/navrows_test.cpp
+    layout/scrollmap_test.cpp
 )
 
 target_link_libraries(awm_layout_tests PRIVATE awm_layout GTest::gtest_main)
 
 add_test(NAME awm_layout_tests COMMAND awm_layout_tests)
+
+# Scroll synchronization policy tests (fake editor/preview, no windows).
+add_executable(awm_sync_tests
+    sync/scrollsync_test.cpp
+)
+
+target_link_libraries(awm_sync_tests PRIVATE awm_sync GTest::gtest_main)
+
+add_test(NAME awm_sync_tests COMMAND awm_sync_tests)

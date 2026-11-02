@@ -15,6 +15,9 @@ struct PreviewCallbacks {
     /// Invoked when the user clicks a link; the host decides whether to open it
     /// in the system browser.
     std::function<void(const std::string& url)> onLink;
+    /// Invoked when the preview scrolls; `sourceLine` is the (fractional)
+    /// Markdown source line at the top of the viewport.
+    std::function<void(double sourceLine)> onScrolledToLine;
     /// Generic message bridge (used by engine-specific JS bridge / scroll sync).
     std::function<void(const std::string& message)> onMessage;
 };
@@ -44,6 +47,10 @@ public:
     virtual void SetZoom(int percent) = 0;
     /// Navigates the preview to a section anchor (for TOC navigation).
     virtual void ScrollToAnchor(const std::string& anchor) = 0;
+    /// Scrolls so the given 1-based Markdown source line is at the top.
+    virtual void ScrollToSourceLine(double sourceLine) = 0;
+    /// True when the rendered document exposes source line positions.
+    virtual bool SupportsSourceMapping() const = 0;
     /// Executes JavaScript. Returns false if the engine does not support it.
     virtual bool RunJavaScript(const std::string& script) = 0;
 

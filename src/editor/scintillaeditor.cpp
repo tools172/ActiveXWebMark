@@ -108,7 +108,15 @@ void ScintillaEditor::HandleHostNotification(LPNMHDR header)
             changeCallback_();
         }
     } else if (header->code == SCN_UPDATEUI) {
+        const auto* notification = reinterpret_cast<SCNotification*>(header);
+        if ((notification->updated & SC_UPDATE_V_SCROLL) != 0) {
+            NotifyScrollIfChanged();
+        }
         UpdateLineNumberWidth();
+    } else if (header->code == SCN_PAINTED) {
+        // Scintilla 4.4.6 may not deliver SCN_UPDATEUI for some scroll paths
+        // (WM_VSCROLL / SCI_LINESCROLL); painting after a scroll is reliable.
+        NotifyScrollIfChanged();
     }
 }
 
@@ -160,6 +168,31 @@ void ScintillaEditor::GotoLine(int line)
 {
     const int zeroBased = line > 0 ? line - 1 : 0;
     ::SendMessageW(hwnd_, SCI_GOTOLINE, zeroBased, 0);
+}
+
+int ScintillaEditor::FirstVisibleLine() const
+{
+    if (hwnd_ == nullptr) {
+        return 1;
+    }
+    const int line = static_cast<int>(::SendMessageW(hwnd_, SCI_GETFIRSTVISIBLELINE, 0, 0));
+    return line + 1;
+}
+
+void ScintillaEditor::SetFirstVisibleLine(int line)
+{
+    if (hwnd_ == nullptr) {
+        return;
+    }
+    const int lineCount =
+        std::max(1, static_cast<int>(::SendMessageW(hwnd_, SCI_GETLINECOUNT, 0, 0)));
+    const int target = std::clamp(line, 1, lineCount);
+    ::SendMessageW(hwnd_, SCI_SETFIRSTVISIBLELINE, target - 1, 0);
+}
+
+void ScintillaEditor::SetScrollCallback(std::function<void(int firstVisibleLine)> callback)
+{
+    scrollCallback_ = std::move(callback);
 }
 
 void ScintillaEditor::SetReadOnly(bool readOnly)
@@ -277,6 +310,20 @@ void ScintillaEditor::UpdateLineNumberWidth()
         lineNumberWidth_ = width;
         ::SendMessageW(hwnd_, SCI_SETMARGINWIDTHN, 0, width);
     }
+}
+
+void ScintillaEditor::NotifyScrollIfChanged()
+{
+    if (!scrollCallback_) {
+        return;
+    }
+
+    const int line = FirstVisibleLine();
+    if (line == lastReportedFirstLine_) {
+        return;
+    }
+    lastReportedFirstLine_ = line;
+    scrollCallback_(line);
 }
 
 void ScintillaEditor::ApplyStyle(const std::string& source, const std::vector<StyleSpan>& spans)

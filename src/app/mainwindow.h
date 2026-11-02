@@ -61,6 +61,7 @@ public:
         COMMAND_ID_HANDLER(cmd::kViewSplitSideBySide, OnViewSplitSideBySide)
         COMMAND_ID_HANDLER(cmd::kViewSplitStacked, OnViewSplitStacked)
         COMMAND_ID_HANDLER(cmd::kViewToggleSplit, OnViewToggleSplit)
+        COMMAND_ID_HANDLER(cmd::kViewScrollSync, OnViewScrollSync)
         COMMAND_ID_HANDLER(cmd::kRecentMore, OnRecentMore)
         COMMAND_ID_HANDLER(cmd::kRecentClear, OnRecentClear)
         COMMAND_ID_HANDLER(cmd::kHelpAbout, OnHelpAbout)
@@ -89,6 +90,7 @@ private:
     LRESULT OnViewSplitSideBySide(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewSplitStacked(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewToggleSplit(WORD, WORD, HWND, BOOL&);
+    LRESULT OnViewScrollSync(WORD, WORD, HWND, BOOL&);
     LRESULT OnRecentFile(WORD, WORD, HWND, BOOL&);
     LRESULT OnRecentMore(WORD, WORD, HWND, BOOL&);
     LRESULT OnRecentClear(WORD, WORD, HWND, BOOL&);

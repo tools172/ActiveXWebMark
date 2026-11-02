@@ -13,6 +13,7 @@
 #include "ieditorview.h"
 #include "ipreviewview.h"
 #include "markdown/imarkdownengine.h"
+#include "scrollsync.h"
 #include "session/document_session.h"
 #include "theme.h"
 #include "viewstate.h"
@@ -50,6 +51,8 @@ public:
 
     static constexpr UINT kRenderTimerId = 1;
     static constexpr UINT kRenderDelayMs = 200;
+    static constexpr UINT kScrollSyncTimerId = 2;
+    static constexpr UINT kScrollSyncDelayMs = 30;
 
     ~DocumentView() override;
 
@@ -111,6 +114,7 @@ private:
 
     std::unique_ptr<IEditorView> editor_;
     std::unique_ptr<IPreviewView> preview_;
+    std::unique_ptr<ScrollSyncController> scrollSync_;
     ui::NavPanel navPanel_;
     ui::Splitter navSplitter_;
     ui::Splitter editorSplitter_;

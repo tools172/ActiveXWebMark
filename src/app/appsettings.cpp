@@ -45,6 +45,7 @@ ViewSettings LoadViewSettings(ISettings& settings)
     view.stackedRatio =
         ratioFromPercent(settings.getInt("ui.stackedRatio", 55), view.stackedRatio);
     view.navWidth = std::clamp(settings.getInt("ui.navWidth", view.navWidth), 160, 480);
+    view.scrollSync = settings.getBool("ui.scrollSync", view.scrollSync);
     return view;
 }
 
@@ -57,6 +58,7 @@ void SaveViewSettings(ISettings& settings, const ViewSettings& view)
     settings.setInt("ui.sideBySideRatio", percentFromRatio(view.sideBySideRatio));
     settings.setInt("ui.stackedRatio", percentFromRatio(view.stackedRatio));
     settings.setInt("ui.navWidth", std::clamp(view.navWidth, 160, 480));
+    settings.setBool("ui.scrollSync", view.scrollSync);
 }
 
 WindowPlacementState LoadWindowPlacement(ISettings& settings)

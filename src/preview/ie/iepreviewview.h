@@ -6,10 +6,12 @@
 #include <exdisp.h>
 #include <exdispid.h>
 #include <mshtml.h>
+#include <mshtmdid.h>
 
 #include <string>
 
 #include "ipreviewview.h"
+#include "layout/scrollmap.h"
 
 namespace awm {
 
@@ -35,6 +37,9 @@ inline _ATL_FUNC_INFO kNewWindow3Info = {
     {static_cast<VARTYPE>(VT_BYREF | VT_DISPATCH), static_cast<VARTYPE>(VT_BYREF | VT_BOOL),
      VT_UI4, VT_BSTR, VT_BSTR}};
 
+// HTMLWindowEvents2 handlers all receive a single IHTMLEventObj*.
+inline _ATL_FUNC_INFO kWindowEventInfo = {CC_STDCALL, VT_EMPTY, 1, {VT_DISPATCH}};
+
 } // namespace ie_detail
 
 /// IPreviewView backed by the IE WebBrowser control (MSHTML / Trident).
@@ -47,6 +52,7 @@ inline _ATL_FUNC_INFO kNewWindow3Info = {
 class IePreviewView final
     : public IPreviewView
     , public IDispEventSimpleImpl<1, IePreviewView, &DIID_DWebBrowserEvents2>
+    , public IDispEventSimpleImpl<2, IePreviewView, &DIID_HTMLWindowEvents2>
 {
 public:
     IePreviewView();
@@ -60,6 +66,8 @@ public:
     void SetHtml(const std::string& html, const std::string& baseUrl) override;
     void SetZoom(int percent) override;
     void ScrollToAnchor(const std::string& anchor) override;
+    void ScrollToSourceLine(double sourceLine) override;
+    bool SupportsSourceMapping() const override { return hasSourceMap_; }
     bool RunJavaScript(const std::string& script) override;
 
     void SetCallbacks(PreviewCallbacks callbacks) override;
@@ -74,6 +82,12 @@ public:
                         &ie_detail::kBeforeNavigate2Info)
         SINK_ENTRY_INFO(1, DIID_DWebBrowserEvents2, DISPID_NEWWINDOW3, OnNewWindow3,
                         &ie_detail::kNewWindow3Info)
+        SINK_ENTRY_INFO(2, DIID_HTMLWindowEvents2, DISPID_HTMLWINDOWEVENTS2_ONSCROLL,
+                        OnWindowScroll, &ie_detail::kWindowEventInfo)
+        SINK_ENTRY_INFO(2, DIID_HTMLWindowEvents2, DISPID_HTMLWINDOWEVENTS2_ONLOAD,
+                        OnWindowLoad, &ie_detail::kWindowEventInfo)
+        SINK_ENTRY_INFO(2, DIID_HTMLWindowEvents2, DISPID_HTMLWINDOWEVENTS2_ONRESIZE,
+                        OnWindowResize, &ie_detail::kWindowEventInfo)
     END_SINK_MAP()
 
     void __stdcall OnDocumentComplete(IDispatch* dispatch, VARIANT* url);
@@ -82,15 +96,22 @@ public:
                                      VARIANT* headers, VARIANT_BOOL* cancel);
     void __stdcall OnNewWindow3(IDispatch** dispatch, VARIANT_BOOL* cancel, DWORD flags,
                                 BSTR urlContext, BSTR url);
+    void __stdcall OnWindowScroll(IHTMLEventObj* event);
+    void __stdcall OnWindowLoad(IHTMLEventObj* event);
+    void __stdcall OnWindowResize(IHTMLEventObj* event);
 
 private:
     bool AdviseBrowser();
     void UnadviseBrowser();
+    void AdviseWindowEvents();
+    void UnadviseWindowEvents();
     void NavigateToBlank();
     void FlushPending();
     void WriteHtml(const std::wstring& html);
     void InstallLinkHandler();
     void ApplyPendingAnchor();
+    void EnsureScrollMap();
+    void RebuildScrollMap();
     bool GetScrollPosition(long& top, long& left) const;
     void RestoreScrollPosition(long top, long left);
 
@@ -101,14 +122,20 @@ private:
     CAxWindow ax_;
     CComPtr<IWebBrowser2> browser_;
     CComPtr<IOleInPlaceActiveObject> activeObject_;
+    CComPtr<IHTMLWindow2> scrollWindow_;
     PreviewCallbacks callbacks_;
 
     std::wstring pendingHtml_;
     std::wstring lastHtml_;
     std::string pendingAnchor_;
+    ui::ScrollMap scrollMap_;
+    bool scrollMapDirty_ = true;
+    bool hasSourceMap_ = false;
+    bool suppressScrollCallback_ = false;
     bool ready_ = false;
     bool navigating_ = false;
     bool advised_ = false;
+    bool windowAdvised_ = false;
 };
 
 } // namespace awm

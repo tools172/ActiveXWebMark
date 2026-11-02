@@ -225,6 +225,8 @@ void MainWindow::CreateMenuBar()
     ::AppendMenuW(viewMenu_, MF_STRING, cmd::kViewSplitStacked, L"上下分屏(&T)");
     ::AppendMenuW(viewMenu_, MF_STRING, cmd::kViewToggleSplit,
                   L"切换分屏方向(&S)\tCtrl+Shift+L");
+    ::AppendMenuW(viewMenu_, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(viewMenu_, MF_STRING, cmd::kViewScrollSync, L"滚动同步(&Y)");
 
     HMENU helpMenu = ::CreatePopupMenu();
     ::AppendMenuW(helpMenu, MF_STRING, cmd::kHelpAbout, L"关于 ActiveXWebMark(&A)...\tF1");
@@ -278,6 +280,8 @@ void MainWindow::UpdateMenuState()
                         (viewSettings_.showEditor ? MF_CHECKED : MF_UNCHECKED));
     ::CheckMenuItem(viewMenu_, cmd::kViewNav,
                     MF_BYCOMMAND | (viewSettings_.showNav ? MF_CHECKED : MF_UNCHECKED));
+    ::CheckMenuItem(viewMenu_, cmd::kViewScrollSync,
+                    MF_BYCOMMAND | (viewSettings_.scrollSync ? MF_CHECKED : MF_UNCHECKED));
     ::CheckMenuRadioItem(
         viewMenu_, cmd::kViewSplitSideBySide, cmd::kViewSplitStacked,
         viewSettings_.split == ui::Orientation::Horizontal ? cmd::kViewSplitSideBySide
@@ -889,6 +893,14 @@ LRESULT MainWindow::OnViewToggleSplit(WORD, WORD, HWND, BOOL&)
     if (DocumentView* view = ActiveView()) {
         view->FocusPrimaryPane();
     }
+    return 0;
+}
+
+LRESULT MainWindow::OnViewScrollSync(WORD, WORD, HWND, BOOL&)
+{
+    viewSettings_.scrollSync = !viewSettings_.scrollSync;
+    ApplyViewSettingsToAll();
+    UpdateMenuState();
     return 0;
 }
 

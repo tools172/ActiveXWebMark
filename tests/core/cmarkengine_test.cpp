@@ -16,7 +16,9 @@ RenderResult render(const std::string& markdown)
 TEST(CmarkEngine, RendersFencedCodeBlock)
 {
     const RenderResult result = render("```jsx\nconst a = 1;\n```\n");
-    EXPECT_NE(result.bodyHtml.find("<pre><code"), std::string::npos);
+    // SOURCEPOS adds attributes to <pre>, so do not require "<pre><code".
+    EXPECT_NE(result.bodyHtml.find("<pre"), std::string::npos);
+    EXPECT_NE(result.bodyHtml.find("<code"), std::string::npos);
     EXPECT_NE(result.bodyHtml.find("language-jsx"), std::string::npos);
 }
 
@@ -24,8 +26,8 @@ TEST(CmarkEngine, RendersListInterruptingParagraph)
 {
     // CommonMark: a list may interrupt a paragraph without a blank line.
     const RenderResult result = render("**bold**\n- item one\n- item two\n");
-    EXPECT_NE(result.bodyHtml.find("<ul>"), std::string::npos);
-    EXPECT_NE(result.bodyHtml.find("<li>"), std::string::npos);
+    EXPECT_NE(result.bodyHtml.find("<ul"), std::string::npos);
+    EXPECT_NE(result.bodyHtml.find("<li"), std::string::npos);
 }
 
 TEST(CmarkEngine, ProducesOutline)
@@ -47,6 +49,16 @@ TEST(CmarkEngine, HeadingIdsMatchOutlineAnchors)
         EXPECT_NE(result.bodyHtml.find(expected), std::string::npos)
             << "heading \"" << item.text << "\" should emit " << expected;
     }
+}
+
+TEST(CmarkEngine, HtmlCarriesSourcePositions)
+{
+    const RenderResult result = render("# Title\n\nParagraph\n");
+    EXPECT_NE(result.bodyHtml.find("data-sourcepos=\""), std::string::npos);
+    ASSERT_EQ(result.outline.size(), 1u);
+    EXPECT_NE(result.bodyHtml.find("id=\"title\""), std::string::npos);
+    EXPECT_NE(result.bodyHtml.find("<h1 id=\"title\" data-sourcepos=\""),
+              std::string::npos);
 }
 
 TEST(CmarkEngine, DuplicateHeadingsGetUniqueAnchors)

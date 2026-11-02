@@ -45,6 +45,15 @@ public:
     /// Moves the caret to a 1-based line (used by TOC navigation).
     virtual void GotoLine(int line) = 0;
 
+    /// 1-based source line at the top of the visible area.
+    virtual int FirstVisibleLine() const = 0;
+
+    /// Scrolls so `line` (1-based) is the topmost visible source line.
+    virtual void SetFirstVisibleLine(int line) = 0;
+
+    /// Invoked when the vertical scroll position changes.
+    virtual void SetScrollCallback(std::function<void(int firstVisibleLine)> callback) = 0;
+
     virtual void SetReadOnly(bool readOnly) = 0;
 
     /// Updates DPI-dependent fonts/margins (1.0 = 96 DPI).

@@ -15,6 +15,7 @@ struct ViewSettings {
     double sideBySideRatio = 0.55;
     double stackedRatio = 0.55;
     int navWidth = 280; ///< Logical (96-DPI) pixels.
+    bool scrollSync = true;
 };
 
 } // namespace awm

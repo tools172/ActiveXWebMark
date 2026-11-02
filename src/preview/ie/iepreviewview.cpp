@@ -5,9 +5,13 @@
 #include <atlsafe.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <cwchar>
 #include <utility>
+#include <vector>
+
+#include <nlohmann/json.hpp>
 
 #include "util/stringutil.h"
 
@@ -87,6 +91,7 @@ bool IePreviewView::Create(HWND host, const RECT& rc)
 
 void IePreviewView::Destroy()
 {
+    UnadviseWindowEvents();
     UnadviseBrowser();
     if (activeObject_ != nullptr) {
         activeObject_.Release();
@@ -103,6 +108,9 @@ void IePreviewView::Destroy()
     pendingHtml_.clear();
     lastHtml_.clear();
     pendingAnchor_.clear();
+    scrollMap_ = ui::ScrollMap{};
+    scrollMapDirty_ = true;
+    hasSourceMap_ = false;
 }
 
 void IePreviewView::SetBounds(const RECT& rc)
@@ -122,6 +130,9 @@ void IePreviewView::SetBounds(const RECT& rc)
     if (restoreScroll) {
         RestoreScrollPosition(top, left);
     }
+
+    // Resizing reflows the document, so all cached pixel positions change.
+    scrollMapDirty_ = true;
 }
 
 void IePreviewView::Show(bool visible)
@@ -213,16 +224,159 @@ bool IePreviewView::AdviseBrowser()
     if (browser_ == nullptr || advised_) {
         return browser_ != nullptr;
     }
-    advised_ = SUCCEEDED(DispEventAdvise(browser_, &DIID_DWebBrowserEvents2));
+    const HRESULT hr =
+        IDispEventSimpleImpl<1, IePreviewView, &DIID_DWebBrowserEvents2>::DispEventAdvise(
+            browser_, &DIID_DWebBrowserEvents2);
+    advised_ = SUCCEEDED(hr);
     return advised_;
 }
 
 void IePreviewView::UnadviseBrowser()
 {
     if (advised_ && browser_ != nullptr) {
-        DispEventUnadvise(browser_, &DIID_DWebBrowserEvents2);
+        IDispEventSimpleImpl<1, IePreviewView, &DIID_DWebBrowserEvents2>::DispEventUnadvise(
+            browser_, &DIID_DWebBrowserEvents2);
     }
     advised_ = false;
+}
+
+void IePreviewView::AdviseWindowEvents()
+{
+    UnadviseWindowEvents();
+
+    scrollWindow_ = Window();
+    if (scrollWindow_ == nullptr) {
+        return;
+    }
+
+    const HRESULT hr =
+        IDispEventSimpleImpl<2, IePreviewView, &DIID_HTMLWindowEvents2>::DispEventAdvise(
+            scrollWindow_, &DIID_HTMLWindowEvents2);
+    windowAdvised_ = SUCCEEDED(hr);
+}
+
+void IePreviewView::UnadviseWindowEvents()
+{
+    if (windowAdvised_ && scrollWindow_ != nullptr) {
+        IDispEventSimpleImpl<2, IePreviewView, &DIID_HTMLWindowEvents2>::DispEventUnadvise(
+            scrollWindow_, &DIID_HTMLWindowEvents2);
+    }
+    windowAdvised_ = false;
+    scrollWindow_.Release();
+}
+
+void IePreviewView::ScrollToSourceLine(double sourceLine)
+{
+    if (!ready_) {
+        return;
+    }
+
+    EnsureScrollMap();
+    if (scrollMap_.empty()) {
+        return;
+    }
+
+    CComPtr<IHTMLWindow2> window = Window();
+    if (window == nullptr) {
+        return;
+    }
+
+    const double y = std::max(0.0, scrollMap_.yForLine(sourceLine));
+    suppressScrollCallback_ = true;
+    window->scrollTo(0, static_cast<long>(std::lround(y)));
+    suppressScrollCallback_ = false;
+}
+
+void IePreviewView::EnsureScrollMap()
+{
+    if (scrollMapDirty_) {
+        RebuildScrollMap();
+    }
+}
+
+void IePreviewView::RebuildScrollMap()
+{
+    scrollMapDirty_ = false;
+    hasSourceMap_ = false;
+    scrollMap_ = ui::ScrollMap{};
+
+    CComPtr<IHTMLWindow2> window = Window();
+    if (window == nullptr) {
+        return;
+    }
+
+    // Collect each block's source line range and its document-space rectangle.
+    // The result is written into a hidden element because execScript does not
+    // reliably return string values on all IE configurations.
+    static const wchar_t* kScript =
+        L"(function(){"
+        L"var out=[];"
+        L"var all=document.getElementsByTagName('*');"
+        L"var base=(window.pageYOffset||document.documentElement.scrollTop||0);"
+        L"for(var i=0;i<all.length;i++){"
+        L"var e=all[i];"
+        L"var sp=e.getAttribute?e.getAttribute('data-sourcepos'):null;"
+        L"if(!sp) continue;"
+        L"var m=/(\\d+):\\d+-(\\d+):\\d+/.exec(sp);"
+        L"if(!m) continue;"
+        L"var r=e.getBoundingClientRect();"
+        L"var h=r.bottom-r.top;"
+        L"if(h<=0) continue;"
+        L"out.push([+m[1],+m[2],Math.round(r.top+base),Math.round(h)]);"
+        L"}"
+        L"var h=document.getElementById('awm-scroll-map');"
+        L"if(!h){h=document.createElement('div');h.id='awm-scroll-map';"
+        L"h.style.display='none';document.body.appendChild(h);}"
+        L"h.innerHTML=JSON.stringify(out);"
+        L"})()";
+
+    CComVariant result;
+    const HRESULT hr = window->execScript(CComBSTR(kScript), CComBSTR(L"JavaScript"), &result);
+    if (FAILED(hr)) {
+        return;
+    }
+
+    CComPtr<IHTMLDocument2> document = Document();
+    CComQIPtr<IHTMLDocument3> document3(document);
+    if (document3 == nullptr) {
+        return;
+    }
+    CComPtr<IHTMLElement> holder;
+    if (FAILED(document3->getElementById(CComBSTR(L"awm-scroll-map"), &holder)) ||
+        holder == nullptr) {
+        return;
+    }
+    CComBSTR text;
+    if (FAILED(holder->get_innerHTML(&text)) || text.m_str == nullptr) {
+        return;
+    }
+
+    try {
+        const std::string json = wideToUtf8(std::wstring(text.m_str, text.Length()));
+        const nlohmann::json rows = nlohmann::json::parse(json);
+        if (!rows.is_array()) {
+            return;
+        }
+
+        std::vector<ui::ScrollBlock> blocks;
+        blocks.reserve(rows.size());
+        for (const auto& row : rows) {
+            if (!row.is_array() || row.size() < 4) {
+                continue;
+            }
+            ui::ScrollBlock block;
+            block.startLine = row[0].get<int>();
+            block.endLine = row[1].get<int>();
+            block.top = row[2].get<double>();
+            block.height = row[3].get<double>();
+            blocks.push_back(block);
+        }
+
+        scrollMap_.rebuild(std::move(blocks));
+        hasSourceMap_ = !scrollMap_.empty();
+    } catch (const nlohmann::json::exception&) {
+        // Malformed map: leave it empty so synchronization is skipped safely.
+    }
 }
 
 void IePreviewView::NavigateToBlank()
@@ -268,8 +422,11 @@ void IePreviewView::WriteHtml(const std::wstring& html)
     document->close();
 
     lastHtml_ = html;
+    scrollMapDirty_ = true;
+    hasSourceMap_ = false;
     RestoreScrollPosition(scrollTop, scrollLeft);
     InstallLinkHandler();
+    AdviseWindowEvents();
 }
 
 void IePreviewView::InstallLinkHandler()
@@ -380,7 +537,41 @@ void __stdcall IePreviewView::OnDocumentComplete(IDispatch* /*dispatch*/, VARIAN
 {
     ready_ = true;
     navigating_ = false;
+    AdviseWindowEvents();
     FlushPending();
+}
+
+void __stdcall IePreviewView::OnWindowScroll(IHTMLEventObj* /*event*/)
+{
+    if (suppressScrollCallback_ || !callbacks_.onScrolledToLine) {
+        return;
+    }
+
+    EnsureScrollMap();
+    if (scrollMap_.empty()) {
+        return;
+    }
+
+    long top = 0;
+    long left = 0;
+    if (!GetScrollPosition(top, left)) {
+        return;
+    }
+
+    callbacks_.onScrolledToLine(scrollMap_.lineForY(static_cast<double>(top)));
+}
+
+void __stdcall IePreviewView::OnWindowLoad(IHTMLEventObj* /*event*/)
+{
+    scrollMapDirty_ = true;
+    RebuildScrollMap();
+}
+
+void __stdcall IePreviewView::OnWindowResize(IHTMLEventObj* /*event*/)
+{
+    // Rebuild lazily: resize events can arrive rapidly while dragging a
+    // splitter, and the pixel positions settle after the current message.
+    scrollMapDirty_ = true;
 }
 
 void __stdcall IePreviewView::OnBeforeNavigate2(IDispatch* /*dispatch*/, VARIANT* url,

@@ -15,6 +15,7 @@ constexpr int kViewNav = 1011;
 constexpr int kViewSplitSideBySide = 1012;
 constexpr int kViewSplitStacked = 1013;
 constexpr int kViewToggleSplit = 1014;
+constexpr int kViewScrollSync = 1015;
 
 // Help commands.
 constexpr int kHelpAbout = 1100;

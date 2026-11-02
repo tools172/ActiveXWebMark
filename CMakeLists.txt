@@ -35,6 +35,7 @@ add_subdirectory(src/ui)
 
 add_subdirectory(src/editor)
 add_subdirectory(src/preview)
+add_subdirectory(src/sync)
 add_subdirectory(src/app)
 
 # ---------------------------------------------------------------------------

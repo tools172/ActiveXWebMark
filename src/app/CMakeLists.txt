@@ -23,6 +23,7 @@ target_link_libraries(awm_app PRIVATE
     awm_editor
     awm_preview
     awm_ui
+    awm_sync
     comdlg32
     shell32
     shlwapi

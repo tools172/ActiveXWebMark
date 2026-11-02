@@ -28,6 +28,9 @@ public:
     void ApplyHighlighting(const std::string& source,
                            const std::vector<StyleSpan>& spans) override;
     void GotoLine(int line) override;
+    int FirstVisibleLine() const override;
+    void SetFirstVisibleLine(int line) override;
+    void SetScrollCallback(std::function<void(int firstVisibleLine)> callback) override;
     void SetReadOnly(bool readOnly) override;
     void SetDpiScale(double scale) override;
     void Focus() override;
@@ -37,6 +40,7 @@ private:
     void SetupStyles();
     void UpdateMargins();
     void UpdateLineNumberWidth();
+    void NotifyScrollIfChanged();
     void ApplyStyle(const std::string& source, const std::vector<StyleSpan>& spans);
     int px(int logicalPixels) const;
 
@@ -45,8 +49,10 @@ private:
     HWND hwnd_ = nullptr;
     WNDPROC originalProc_ = nullptr;
     std::function<void()> changeCallback_;
+    std::function<void(int)> scrollCallback_;
     double dpiScale_ = 1.0;
     int lineNumberWidth_ = -1;
+    int lastReportedFirstLine_ = 1;
 };
 
 } // namespace awm

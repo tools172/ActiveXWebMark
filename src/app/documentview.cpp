@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "markdown/previewhtml.h"
+#include "scrollsync.h"
 #include "util/pathutil.h"
 #include "util/stringutil.h"
 
@@ -47,6 +48,11 @@ DocumentView::~DocumentView()
 {
     if (::IsWindow(m_hWnd)) {
         ::KillTimer(m_hWnd, kRenderTimerId);
+        ::KillTimer(m_hWnd, kScrollSyncTimerId);
+    }
+    if (scrollSync_) {
+        scrollSync_->SetPreview(nullptr);
+        scrollSync_.reset();
     }
     if (preview_) {
         preview_->Destroy();
@@ -91,6 +97,17 @@ bool DocumentView::Create(HWND parent, const RECT& rc, std::unique_ptr<DocumentS
     editor_->ApplyHighlighting(source, services_.highlighter->highlight(source));
     editor_->SetChangeCallback([this]() { OnEditorChanged(); });
 
+    scrollSync_ = std::make_unique<ScrollSyncController>(*editor_);
+    scrollSync_->SetScheduler(
+        [this] { ::SetTimer(m_hWnd, kScrollSyncTimerId, kScrollSyncDelayMs, nullptr); },
+        [this] { ::KillTimer(m_hWnd, kScrollSyncTimerId); });
+    scrollSync_->SetEnabled(settings_.scrollSync);
+    editor_->SetScrollCallback([this](int line) {
+        if (scrollSync_) {
+            scrollSync_->OnEditorScrolled(line);
+        }
+    });
+
     if (navPanel_.Create(m_hWnd, zero, 100)) {
         navPanel_.SetTheme(theme());
         navPanel_.SetCallbacks(ui::NavPanel::Callbacks{
@@ -133,6 +150,10 @@ void DocumentView::SetViewSettings(const ViewSettings& settings)
         editor_->SetDpiScale(static_cast<double>(theme()->dpi()) / 96.0);
     }
     Layout();
+
+    if (scrollSync_) {
+        scrollSync_->SetEnabled(settings_.scrollSync);
+    }
 }
 
 void DocumentView::Activate()
@@ -158,6 +179,9 @@ void DocumentView::Activate()
 void DocumentView::Deactivate()
 {
     if (IsWindow()) {
+        if (scrollSync_) {
+            scrollSync_->Cancel();
+        }
         ShowWindow(SW_HIDE);
     }
 }
@@ -264,8 +288,16 @@ void DocumentView::EnsurePreview()
 
     PreviewCallbacks callbacks;
     callbacks.onLink = services_.onOpenLink;
+    callbacks.onScrolledToLine = [this](double line) {
+        if (scrollSync_) {
+            scrollSync_->OnPreviewScrolled(line);
+        }
+    };
     preview_->SetCallbacks(std::move(callbacks));
     preview_->SetZoom(100);
+    if (scrollSync_) {
+        scrollSync_->SetPreview(preview_.get());
+    }
     rendered_ = false;
 }
 
@@ -372,6 +404,11 @@ void DocumentView::RenderNow()
         return;
     }
 
+    // Editing invalidates any queued scroll synchronization.
+    if (scrollSync_) {
+        scrollSync_->Suspend(300);
+    }
+
     if (textDirty_) {
         FlushEditorText();
     }
@@ -423,6 +460,12 @@ void DocumentView::OnNavSelected(std::size_t index)
         ::KillTimer(m_hWnd, kRenderTimerId);
         renderScheduled_ = false;
         RenderNow();
+    }
+
+    // TOC navigation positions both panes explicitly; ignore the scroll
+    // events it causes and cancel any queued sync so it cannot fight it.
+    if (scrollSync_) {
+        scrollSync_->Suspend(250);
     }
 
     const OutlineItem& item = currentOutline_[index];
@@ -521,6 +564,11 @@ LRESULT DocumentView::OnTimer(UINT, WPARAM wParam, LPARAM, BOOL&)
         ::KillTimer(m_hWnd, kRenderTimerId);
         renderScheduled_ = false;
         RenderNow();
+    } else if (wParam == kScrollSyncTimerId) {
+        ::KillTimer(m_hWnd, kScrollSyncTimerId);
+        if (scrollSync_) {
+            scrollSync_->OnTimerTick();
+        }
     }
     return 0;
 }
