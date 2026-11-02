@@ -63,7 +63,7 @@ jobs:
         shell: pwsh
         run: |
           $v = "${{ steps.version.outputs.version }}"
-          wix build -o "dist/ActiveXWebMark-$v.msi" packaging/wix/ActiveXWebMark.wxs
+          wix build -o "$env:GITHUB_WORKSPACE\dist\ActiveXWebMark-$v.msi" packaging/wix/ActiveXWebMark.wxs
 
       - name: Build Setup.exe (NSIS)
         shell: pwsh

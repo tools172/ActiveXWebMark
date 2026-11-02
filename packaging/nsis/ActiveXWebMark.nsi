@@ -1,21 +1,24 @@
 ; ActiveXWebMark — NSIS installer script.
 ;
-; Build from the repository root:
+; Build from anywhere:
 ;   makensis /DVERSION=0.1.0 packaging/nsis/ActiveXWebMark.nsi
-; Output: dist\ActiveXWebMark-0.1.0-setup.exe
+; Output: dist\ActiveXWebMark-0.1.0-setup.exe (at the repository root)
 ;
-; The executable is taken from the EXE define (defaults to the vs2022 build
-; output). Override with: /DEXE=<path>.
-;
-; NOTE: relative paths are resolved against the directory where makensis runs
-; (the repository root in CI).
+; Paths are anchored to the repository root via __FILEDIR__, so the build works
+; regardless of the current working directory. Override EXE with /DEXE=<path>.
+
+!define ROOT "${__FILEDIR__}\..\.."
 
 !ifndef VERSION
   !define VERSION "0.0.0"
 !endif
 
 !ifndef EXE
-  !define EXE "build\vs2022\src\app\Release\ActiveXWebMark.exe"
+  !define EXE "${ROOT}\build\vs2022\src\app\Release\ActiveXWebMark.exe"
+!endif
+
+!ifndef OUTDIR
+  !define OUTDIR "${ROOT}\dist"
 !endif
 
 !define PRODUCT_NAME "ActiveXWebMark"
@@ -27,7 +30,7 @@ Unicode true
 !include "MUI2.nsh"
 
 Name "${PRODUCT_NAME}"
-OutFile "dist\${PRODUCT_NAME}-${VERSION}-setup.exe"
+OutFile "${OUTDIR}\${PRODUCT_NAME}-${VERSION}-setup.exe"
 InstallDir "$PROGRAMFILES64\${PRODUCT_NAME}"
 InstallDirRegKey HKLM "Software\${PRODUCT_NAME}" "InstallDir"
 RequestExecutionLevel admin
