@@ -71,7 +71,7 @@ jobs:
           $nsis = "C:\Program Files (x86)\NSIS\makensis.exe"
           if (-not (Test-Path $nsis)) { $nsis = "makensis" }
           $v = "${{ steps.version.outputs.version }}"
-          & $nsis /DVERSION=$v /DEXE="$env:AWM_EXE" packaging/nsis/ActiveXWebMark.nsi
+          & $nsis /DVERSION=$v /DEXE="$env:AWM_EXE" /DOUTDIR="$env:GITHUB_WORKSPACE\dist" packaging/nsis/ActiveXWebMark.nsi
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
