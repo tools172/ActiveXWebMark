@@ -4,21 +4,20 @@
 ;   makensis /DVERSION=0.1.0 packaging/nsis/ActiveXWebMark.nsi
 ; Output: dist\ActiveXWebMark-0.1.0-setup.exe (at the repository root)
 ;
-; Paths are anchored to the repository root via __FILEDIR__, so the build works
-; regardless of the current working directory. Override EXE with /DEXE=<path>.
-
-!define ROOT "${__FILEDIR__}\..\.."
+; NSIS resolves relative paths against this script's directory (packaging/nsis),
+; so "..\.." reaches the repository root. CI overrides EXE/OUTDIR with absolute
+; paths via /DEXE and /DOUTDIR.
 
 !ifndef VERSION
   !define VERSION "0.0.0"
 !endif
 
 !ifndef EXE
-  !define EXE "${ROOT}\build\vs2022\src\app\Release\ActiveXWebMark.exe"
+  !define EXE "..\..\build\vs2022\src\app\Release\ActiveXWebMark.exe"
 !endif
 
 !ifndef OUTDIR
-  !define OUTDIR "${ROOT}\dist"
+  !define OUTDIR "..\..\dist"
 !endif
 
 !define PRODUCT_NAME "ActiveXWebMark"
