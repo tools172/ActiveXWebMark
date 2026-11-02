@@ -1,4 +1,4 @@
-; ActiveXWebMark — NSIS installer script.
+﻿; ActiveXWebMark — NSIS installer script.
 ;
 ; Build from anywhere:
 ;   makensis /DVERSION=0.1.0 packaging/nsis/ActiveXWebMark.nsi
@@ -63,7 +63,7 @@ Section "Install" SEC01
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" "UninstallString" '"$INSTDIR\uninstall.exe"'
 
   ; Non-fatal warning if the VC++ runtime is missing.
-  IfFileExists "$SYSDIR\vcruntime140.dll" have_crt no_crt
+  IfFileExists "$WINDIR\SysNative\vcruntime140.dll" have_crt no_crt
 have_crt:
   Goto done_crt
 no_crt:
