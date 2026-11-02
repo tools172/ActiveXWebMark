@@ -128,6 +128,7 @@ private:
     std::wstring pendingHtml_;
     std::wstring lastHtml_;
     std::string pendingAnchor_;
+    RECT lastBounds_ = {};
     ui::ScrollMap scrollMap_;
     bool scrollMapDirty_ = true;
     bool hasSourceMap_ = false;

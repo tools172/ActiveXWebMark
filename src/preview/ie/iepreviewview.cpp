@@ -125,7 +125,12 @@ void IePreviewView::SetBounds(const RECT& rc)
     const bool restoreScroll = ready_ && GetScrollPosition(top, left);
 
     RECT rect = rc;
+    const bool boundsChanged = rect.left != lastBounds_.left || rect.top != lastBounds_.top ||
+                               rect.right != lastBounds_.right ||
+                               rect.bottom != lastBounds_.bottom;
+
     ax_.MoveWindow(&rect, TRUE);
+    lastBounds_ = rect;
 
     if (restoreScroll) {
         RestoreScrollPosition(top, left);
@@ -133,6 +138,14 @@ void IePreviewView::SetBounds(const RECT& rc)
 
     // Resizing reflows the document, so all cached pixel positions change.
     scrollMapDirty_ = true;
+
+    // Moving the ATL host does not always repaint the inner MSHTML surface
+    // (the pane can show the parent background). Force a child-inclusive
+    // invalidation; the host applies the new layout once per splitter drag.
+    if (boundsChanged) {
+        ::RedrawWindow(ax_.m_hWnd, nullptr, nullptr,
+                       RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+    }
 }
 
 void IePreviewView::Show(bool visible)

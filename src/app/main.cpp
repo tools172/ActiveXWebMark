@@ -79,8 +79,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*lpC
         _Module.AddMessageLoop(&theLoop);
 
         awm::MainWindow wnd;
+        // WS_CLIPCHILDREN is essential: MainWindow::OnPaint double-buffers and
+        // blits the whole client. Without this style the background blit paints
+        // over the view (and its native panes) every time the frame is
+        // invalidated by Layout(), leaving the nav tree blank.
         if (wnd.Create(nullptr, CWindow::rcDefault, L"ActiveXWebMark",
-                       WS_OVERLAPPEDWINDOW) != nullptr) {
+                       WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN) != nullptr) {
             theLoop.AddMessageFilter(&wnd);
 
             const std::vector<std::wstring> files = filesFromCommandLine();

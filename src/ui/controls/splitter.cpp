@@ -69,7 +69,9 @@ LRESULT Splitter::OnPaint(UINT, WPARAM, LPARAM, BOOL&)
     const Palette palette = theme_ != nullptr ? theme_->palette() : Palette{};
     fillRectColor(dc, client, ToColorRef(palette.windowBg));
 
-    const bool active = dragging_ || hovered_;
+    // While dragging, the target is shown by the host's DragLine; keep this
+    // control showing the current (static) divider instead of an accent.
+    const bool active = hovered_ && !dragging_;
     const COLORREF color =
         ToColorRef(active ? palette.accent : palette.divider);
 
@@ -160,6 +162,9 @@ LRESULT Splitter::OnCaptureChanged(UINT, WPARAM, LPARAM, BOOL&)
     if (dragging_) {
         dragging_ = false;
         hovered_ = false;
+        if (callbacks_.onDragCancel) {
+            callbacks_.onDragCancel();
+        }
         Invalidate(FALSE);
     }
     return 0;

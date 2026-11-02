@@ -7,6 +7,7 @@
 
 #include "wtlinclude.h"
 
+#include "controls/dragline.h"
 #include "controls/navpanel.h"
 #include "controls/splitter.h"
 #include "document/outline.h"
@@ -53,6 +54,9 @@ public:
     static constexpr UINT kRenderDelayMs = 200;
     static constexpr UINT kScrollSyncTimerId = 2;
     static constexpr UINT kScrollSyncDelayMs = 30;
+    // Posted after a splitter drag commits so the nav panel is repainted once
+    // the resize/layout message burst has finished.
+    static constexpr UINT kNavRepaintMessage = WM_APP + 0x51;
 
     ~DocumentView() override;
 
@@ -86,6 +90,7 @@ public:
         MESSAGE_HANDLER(WM_PAINT, OnPaint)
         MESSAGE_HANDLER(WM_ERASEBKGND, OnEraseBkgnd)
         MESSAGE_HANDLER(WM_NOTIFY, OnNotify)
+        MESSAGE_HANDLER(kNavRepaintMessage, OnNavRepaint)
     END_MSG_MAP()
 
 private:
@@ -94,6 +99,7 @@ private:
     LRESULT OnPaint(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnEraseBkgnd(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnNotify(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnNavRepaint(UINT, WPARAM, LPARAM, BOOL&);
 
     void EnsurePreview();
     void Layout();
@@ -101,7 +107,9 @@ private:
     void RenderNow();
     void OnEditorChanged();
     void OnNavSelected(std::size_t index);
-    void OnSplitterDragged(bool editorSplitter, int position);
+    void PreviewSplitterDrag(bool editorSplitter, int position);
+    void CommitSplitterDrag(bool editorSplitter, int position);
+    void HideDragLine();
     void NotifyStateChanged();
     void NotifyViewSettingsChanged();
     std::string BaseUrl() const;
@@ -118,6 +126,7 @@ private:
     ui::NavPanel navPanel_;
     ui::Splitter navSplitter_;
     ui::Splitter editorSplitter_;
+    ui::DragLine dragLine_;
 
     ViewSettings settings_;
     Outline currentOutline_;

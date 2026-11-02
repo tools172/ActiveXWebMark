@@ -24,6 +24,7 @@ public:
     struct Callbacks {
         std::function<void(int)> onDrag;    ///< Position in parent client coords.
         std::function<void(int)> onDragEnd; ///< Final position when the drag ends.
+        std::function<void()> onDragCancel; ///< Drag was cancelled (capture lost).
     };
 
     bool Create(HWND parent, const RECT& rc, UINT id, SplitterAxis axis);

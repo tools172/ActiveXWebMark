@@ -6,6 +6,7 @@ add_library(awm_ui STATIC
     controls/tabstrip.cpp
     controls/splitter.cpp
     controls/navpanel.cpp
+    controls/dragline.cpp
 )
 
 target_include_directories(awm_ui PUBLIC

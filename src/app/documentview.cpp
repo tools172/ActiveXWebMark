@@ -123,15 +123,20 @@ bool DocumentView::Create(HWND parent, const RECT& rc, std::unique_ptr<DocumentS
 
     navSplitter_.Create(m_hWnd, zero, 101, ui::SplitterAxis::Vertical);
     navSplitter_.SetTheme(theme());
-    navSplitter_.SetCallbacks(
-        ui::Splitter::Callbacks{[this](int position) { OnSplitterDragged(false, position); },
-                                [](int) {}});
+    navSplitter_.SetCallbacks(ui::Splitter::Callbacks{
+        [this](int position) { PreviewSplitterDrag(false, position); },
+        [this](int position) { CommitSplitterDrag(false, position); },
+        [this]() { HideDragLine(); }});
 
     editorSplitter_.Create(m_hWnd, zero, 102, ui::SplitterAxis::Vertical);
     editorSplitter_.SetTheme(theme());
-    editorSplitter_.SetCallbacks(
-        ui::Splitter::Callbacks{[this](int position) { OnSplitterDragged(true, position); },
-                                [](int) {}});
+    editorSplitter_.SetCallbacks(ui::Splitter::Callbacks{
+        [this](int position) { PreviewSplitterDrag(true, position); },
+        [this](int position) { CommitSplitterDrag(true, position); },
+        [this]() { HideDragLine(); }});
+
+    dragLine_.Create(m_hWnd);
+    dragLine_.SetTheme(theme());
 
     settings_ = ViewSettings{};
     Layout();
@@ -182,6 +187,7 @@ void DocumentView::Deactivate()
         if (scrollSync_) {
             scrollSync_->Cancel();
         }
+        HideDragLine();
         ShowWindow(SW_HIDE);
     }
 }
@@ -215,6 +221,7 @@ void DocumentView::OnDpiChanged()
     if (navPanel_.IsWindow()) {
         navPanel_.OnDpiChanged();
     }
+    dragLine_.OnDpiChanged();
     Layout();
 }
 
@@ -478,8 +485,58 @@ void DocumentView::OnNavSelected(std::size_t index)
     navPanel_.SetSelected(index);
 }
 
-void DocumentView::OnSplitterDragged(bool editorSplitter, int position)
+void DocumentView::PreviewSplitterDrag(bool editorSplitter, int position)
 {
+    if (theme() == nullptr) {
+        return;
+    }
+
+    RECT client = {};
+    GetClientRect(&client);
+    const ui::RectI area{0, 0, static_cast<int>(client.right),
+                         static_cast<int>(client.bottom)};
+    const int divider = theme()->px(6);
+    const ui::NavLayout nav =
+        ui::layoutWithNav(area, settings_.showNav, theme()->px(settings_.navWidth), divider,
+                          theme()->px(160), theme()->px(480), theme()->px(260));
+
+    if (editorSplitter) {
+        if (nav.content.empty()) {
+            dragLine_.Hide();
+            return;
+        }
+
+        if (settings_.split == ui::Orientation::Horizontal) {
+            const int minX = nav.content.x + static_cast<int>(nav.content.w * 0.2);
+            const int maxX = nav.content.x + static_cast<int>(nav.content.w * 0.8);
+            const int x = std::clamp(position, minX, maxX);
+            dragLine_.ShowVertical(x, nav.content.y, nav.content.bottom());
+        } else {
+            const int minY = nav.content.y + static_cast<int>(nav.content.h * 0.2);
+            const int maxY = nav.content.y + static_cast<int>(nav.content.h * 0.8);
+            const int y = std::clamp(position, minY, maxY);
+            dragLine_.ShowHorizontal(y, nav.content.x, nav.content.right());
+        }
+        return;
+    }
+
+    const int minNav = theme()->px(160);
+    const int maxNav =
+        std::min(theme()->px(480), std::max(0, static_cast<int>(client.right) - divider -
+                                                   theme()->px(260)));
+    if (maxNav < minNav) {
+        dragLine_.Hide();
+        return;
+    }
+    const int minPosition = static_cast<int>(client.right) - maxNav;
+    const int maxPosition = static_cast<int>(client.right) - minNav;
+    const int x = std::clamp(position, minPosition, maxPosition);
+    dragLine_.ShowVertical(x, 0, static_cast<int>(client.bottom));
+}
+
+void DocumentView::CommitSplitterDrag(bool editorSplitter, int position)
+{
+    dragLine_.Hide();
     if (theme() == nullptr) {
         return;
     }
@@ -497,6 +554,7 @@ void DocumentView::OnSplitterDragged(bool editorSplitter, int position)
         if (nav.content.empty()) {
             return;
         }
+
         double ratio = 0.5;
         if (settings_.split == ui::Orientation::Horizontal) {
             ratio = static_cast<double>(position - nav.content.x) /
@@ -518,8 +576,30 @@ void DocumentView::OnSplitterDragged(bool editorSplitter, int position)
         settings_.navWidth = std::clamp(logical, 160, 480);
     }
 
+    // Apply the new layout exactly once, after the mouse is released.
     Layout();
     NotifyViewSettingsChanged();
+
+    // The nav panel hosts a themed, double-buffered tree. Repaint it after the
+    // whole commit message burst (Layout -> settings fan-out -> MainWindow
+    // layout) has finished; a synchronous repaint inside the mouse-up handler
+    // races with those moves and can leave the tree half painted.
+    ::PostMessage(m_hWnd, kNavRepaintMessage, 0, 0);
+}
+
+LRESULT DocumentView::OnNavRepaint(UINT, WPARAM, LPARAM, BOOL&)
+{
+    if (!navPanel_.IsWindow()) {
+        return 0;
+    }
+    ::RedrawWindow(navPanel_.m_hWnd, nullptr, nullptr,
+                   RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+    return 0;
+}
+
+void DocumentView::HideDragLine()
+{
+    dragLine_.Hide();
 }
 
 void DocumentView::NotifyStateChanged()
