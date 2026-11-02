@@ -83,7 +83,10 @@ git push origin v0.1.0
 # 0. 构建（在 build/vs2022/src/app/Release/ 下生成 ActiveXWebMark.exe）
 cmake --build --preset vs2022 --config Release
 
-# 1. NSIS（安装 NSIS 后，从仓库根目录执行）
+# 1. 确保输出目录存在
+New-Item -ItemType Directory -Force dist | Out-Null
+
+# 2. NSIS（安装 NSIS 后执行）
 makensis /DVERSION=0.1.0 packaging\nsis\ActiveXWebMark.nsi
 
 # 2. WiX（安装 WiX 后，从仓库根目录执行）
