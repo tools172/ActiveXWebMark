@@ -1,0 +1,4 @@
+# vcpkg overlay ports (patches, portfiles) must keep LF line endings:
+# `git apply` fails on CRLF patches.
+*.patch text eol=lf
+vcpkg-ports/** text eol=lf

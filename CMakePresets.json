@@ -23,13 +23,13 @@
     },
     {
       "name": "ci",
-      "displayName": "Visual Studio 2022 x64 (CI)",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "x64",
+      "displayName": "Windows x64 (CI, Ninja)",
+      "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/ci",
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_INSTALLATION_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "CMAKE_BUILD_TYPE": "Release",
         "AWM_BUILD_TESTS": "ON"
       }
     }
@@ -42,8 +42,7 @@
     },
     {
       "name": "ci",
-      "configurePreset": "ci",
-      "configuration": "Release"
+      "configurePreset": "ci"
     }
   ],
   "testPresets": [
@@ -58,7 +57,6 @@
     {
       "name": "ci",
       "configurePreset": "ci",
-      "configuration": "Release",
       "output": {
         "outputOnFailure": true
       }
