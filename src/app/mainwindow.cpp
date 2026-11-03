@@ -112,6 +112,7 @@ MainWindow::~MainWindow()
         ::DestroyMenu(mainMenu_);
         mainMenu_ = nullptr;
         fileMenu_ = nullptr;
+        editMenu_ = nullptr;
         viewMenu_ = nullptr;
         recentMenu_ = nullptr;
     }
@@ -122,6 +123,20 @@ BOOL MainWindow::PreTranslateMessage(MSG* pMsg)
     if (pMsg->message == WM_KEYDOWN && pMsg->wParam == VK_F1) {
         SendCommand(cmd::kHelpAbout);
         return TRUE;
+    }
+
+    if (pMsg->message == WM_KEYDOWN) {
+        if (pMsg->wParam == VK_F3) {
+            const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            SendCommand(shift ? cmd::kEditFindPrevious : cmd::kEditFindNext);
+            return TRUE;
+        }
+        if (pMsg->wParam == VK_ESCAPE) {
+            DocumentView* view = ActiveView();
+            if (view != nullptr && view->CloseFindBarIfVisible()) {
+                return TRUE;
+            }
+        }
     }
 
     if (pMsg->message == WM_KEYDOWN || pMsg->message == WM_SYSKEYDOWN) {
@@ -146,6 +161,9 @@ BOOL MainWindow::PreTranslateMessage(MSG* pMsg)
                 return TRUE;
             case L'E':
                 SendCommand(cmd::kViewEditor);
+                return TRUE;
+            case L'F':
+                SendCommand(cmd::kEditFind);
                 return TRUE;
             case L'B':
                 SendCommand(cmd::kViewNav);
@@ -268,6 +286,7 @@ void MainWindow::CreateMenuBar()
 
     mainMenu_ = ::CreateMenu();
     fileMenu_ = ::CreatePopupMenu();
+    editMenu_ = ::CreatePopupMenu();
     viewMenu_ = ::CreatePopupMenu();
     recentMenu_ = ::CreatePopupMenu();
 
@@ -281,6 +300,10 @@ void MainWindow::CreateMenuBar()
     ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileCloseTab, L"关闭标签(&W)\tCtrl+W");
     ::AppendMenuW(fileMenu_, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileExit, L"退出(&X)");
+
+    ::AppendMenuW(editMenu_, MF_STRING, cmd::kEditFind, L"查找(&F)...\tCtrl+F");
+    ::AppendMenuW(editMenu_, MF_STRING, cmd::kEditFindNext, L"查找下一个(&N)\tF3");
+    ::AppendMenuW(editMenu_, MF_STRING, cmd::kEditFindPrevious, L"查找上一个(&P)\tShift+F3");
 
     ::AppendMenuW(viewMenu_, MF_STRING, cmd::kViewEditor, L"显示编辑器(&E)\tCtrl+E");
     ::AppendMenuW(viewMenu_, MF_STRING, cmd::kViewNav, L"显示导航目录(&B)\tCtrl+B");
@@ -296,6 +319,7 @@ void MainWindow::CreateMenuBar()
     ::AppendMenuW(helpMenu, MF_STRING, cmd::kHelpAbout, L"关于 ActiveXWebMark(&A)...\tF1");
 
     ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(fileMenu_), L"文件(&F)");
+    ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(editMenu_), L"编辑(&E)");
     ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(viewMenu_), L"视图(&V)");
     ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(helpMenu), L"帮助(&H)");
     ::SetMenu(m_hWnd, mainMenu_);
@@ -358,6 +382,11 @@ void MainWindow::UpdateMenuState()
     ::EnableMenuItem(fileMenu_, cmd::kFileSave, MF_BYCOMMAND | enabled);
     ::EnableMenuItem(fileMenu_, cmd::kFileSaveAs, MF_BYCOMMAND | enabled);
     ::EnableMenuItem(fileMenu_, cmd::kFileCloseTab, MF_BYCOMMAND | enabled);
+    if (editMenu_ != nullptr) {
+        ::EnableMenuItem(editMenu_, cmd::kEditFind, MF_BYCOMMAND | enabled);
+        ::EnableMenuItem(editMenu_, cmd::kEditFindNext, MF_BYCOMMAND | enabled);
+        ::EnableMenuItem(editMenu_, cmd::kEditFindPrevious, MF_BYCOMMAND | enabled);
+    }
 }
 
 void MainWindow::UpdateTabStrip()
@@ -974,6 +1003,7 @@ LRESULT MainWindow::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
         ::DestroyMenu(mainMenu_);
         mainMenu_ = nullptr;
         fileMenu_ = nullptr;
+        editMenu_ = nullptr;
         viewMenu_ = nullptr;
         recentMenu_ = nullptr;
     }
@@ -1221,6 +1251,30 @@ LRESULT MainWindow::OnRecentMore(WORD, WORD, HWND, BOOL&)
         RecentFilesDialog::ShowModal(m_hWnd, recent_.entries(), recent_.pageSize());
     if (!selected.empty()) {
         OpenFile(selected);
+    }
+    return 0;
+}
+
+LRESULT MainWindow::OnEditFind(WORD, WORD, HWND, BOOL&)
+{
+    if (DocumentView* view = ActiveView()) {
+        view->ShowFindBar();
+    }
+    return 0;
+}
+
+LRESULT MainWindow::OnEditFindNext(WORD, WORD, HWND, BOOL&)
+{
+    if (DocumentView* view = ActiveView()) {
+        view->FindNext();
+    }
+    return 0;
+}
+
+LRESULT MainWindow::OnEditFindPrevious(WORD, WORD, HWND, BOOL&)
+{
+    if (DocumentView* view = ActiveView()) {
+        view->FindPrevious();
     }
     return 0;
 }

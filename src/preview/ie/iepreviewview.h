@@ -59,6 +59,7 @@ public:
     ~IePreviewView() override;
 
     bool Create(HWND host, const RECT& rc) override;
+    HWND hwnd() const override { return ax_.IsWindow() ? ax_.m_hWnd : nullptr; }
     void Destroy() override;
     void SetBounds(const RECT& rc) override;
     void Show(bool visible) override;
@@ -69,6 +70,8 @@ public:
     void ScrollToSourceLine(double sourceLine) override;
     bool SupportsSourceMapping() const override { return hasSourceMap_; }
     bool RunJavaScript(const std::string& script) override;
+    std::string RunJavaScriptForResult(const std::string& script,
+                                       const std::string& resultElementId) override;
 
     void SetCallbacks(PreviewCallbacks callbacks) override;
     bool TranslateAccelerator(MSG* msg) override;

@@ -7,6 +7,7 @@ add_library(awm_ui STATIC
     controls/splitter.cpp
     controls/navpanel.cpp
     controls/dragline.cpp
+    controls/findbar.cpp
 )
 
 target_include_directories(awm_ui PUBLIC

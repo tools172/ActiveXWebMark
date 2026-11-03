@@ -33,6 +33,9 @@ public:
     virtual ~IPreviewView() = default;
 
     virtual bool Create(HWND host, const RECT& rc) = 0;
+    /// Native host window, used to route keyboard accelerators by focus.
+    /// Returns nullptr when the engine has no single host window.
+    virtual HWND hwnd() const { return nullptr; }
     /// Destroys the native control and unhooks events. Safe to call twice.
     virtual void Destroy() = 0;
     virtual void SetBounds(const RECT& rc) = 0;
@@ -53,6 +56,18 @@ public:
     virtual bool SupportsSourceMapping() const = 0;
     /// Executes JavaScript. Returns false if the engine does not support it.
     virtual bool RunJavaScript(const std::string& script) = 0;
+
+    /// Executes JavaScript and returns the text of the element with the given
+    /// id afterwards (UTF-8), or an empty string when unavailable.
+    ///
+    /// Used to read small results back from the page without a COM callback.
+    virtual std::string RunJavaScriptForResult(const std::string& script,
+                                               const std::string& resultElementId)
+    {
+        (void)script;
+        (void)resultElementId;
+        return {};
+    }
 
     virtual void SetCallbacks(PreviewCallbacks callbacks) = 0;
 

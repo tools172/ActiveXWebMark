@@ -62,6 +62,9 @@ public:
         COMMAND_ID_HANDLER(cmd::kViewSplitStacked, OnViewSplitStacked)
         COMMAND_ID_HANDLER(cmd::kViewToggleSplit, OnViewToggleSplit)
         COMMAND_ID_HANDLER(cmd::kViewScrollSync, OnViewScrollSync)
+        COMMAND_ID_HANDLER(cmd::kEditFind, OnEditFind)
+        COMMAND_ID_HANDLER(cmd::kEditFindNext, OnEditFindNext)
+        COMMAND_ID_HANDLER(cmd::kEditFindPrevious, OnEditFindPrevious)
         COMMAND_ID_HANDLER(cmd::kRecentMore, OnRecentMore)
         COMMAND_ID_HANDLER(cmd::kHelpAbout, OnHelpAbout)
         COMMAND_RANGE_HANDLER(cmd::kRecentBase, cmd::kRecentBase + cmd::kRecentCount - 1,
@@ -90,6 +93,9 @@ private:
     LRESULT OnViewSplitStacked(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewToggleSplit(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewScrollSync(WORD, WORD, HWND, BOOL&);
+    LRESULT OnEditFind(WORD, WORD, HWND, BOOL&);
+    LRESULT OnEditFindNext(WORD, WORD, HWND, BOOL&);
+    LRESULT OnEditFindPrevious(WORD, WORD, HWND, BOOL&);
     LRESULT OnRecentFile(WORD, WORD, HWND, BOOL&);
     LRESULT OnRecentMore(WORD, WORD, HWND, BOOL&);
     LRESULT OnHelpAbout(WORD, WORD, HWND, BOOL&);
@@ -142,6 +148,7 @@ private:
 
     HMENU mainMenu_ = nullptr;
     HMENU fileMenu_ = nullptr;
+    HMENU editMenu_ = nullptr;
     HMENU viewMenu_ = nullptr;
     HMENU recentMenu_ = nullptr;
 

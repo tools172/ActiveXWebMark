@@ -8,6 +8,7 @@
 #include "wtlinclude.h"
 
 #include "controls/dragline.h"
+#include "controls/findbar.h"
 #include "controls/navpanel.h"
 #include "controls/splitter.h"
 #include "document/outline.h"
@@ -57,6 +58,11 @@ public:
     // Posted after a splitter drag commits so the nav panel is repainted once
     // the resize/layout message burst has finished.
     static constexpr UINT kNavRepaintMessage = WM_APP + 0x51;
+    /// Diagnostic hook used by tests/manual/find-smoke.ps1.
+    /// wParam 0: 1 when the find bar is visible. 1: match count. 2: current
+    /// index (-1 when none). 3: result code (1 empty query, 2 unsupported,
+    /// 3 empty preview result, 4 invalid regex, 5 parse error, 6 ok).
+    static constexpr UINT kTestFindStateMessage = WM_APP + 0x52;
 
     ~DocumentView() override;
 
@@ -75,6 +81,15 @@ public:
     void OnDpiChanged();
     bool ForwardAccelerator(MSG* msg);
 
+    /// Opens the find bar for this document and focuses its query box.
+    void ShowFindBar();
+    void HideFindBar();
+    /// Closes the find bar when it is open; returns true if it closed.
+    bool CloseFindBarIfVisible();
+    void FindNext();
+    void FindPrevious();
+    bool findBarVisible() const;
+
     DocumentSession& session() { return *session_; }
     const DocumentSession& session() const { return *session_; }
 
@@ -91,6 +106,7 @@ public:
         MESSAGE_HANDLER(WM_ERASEBKGND, OnEraseBkgnd)
         MESSAGE_HANDLER(WM_NOTIFY, OnNotify)
         MESSAGE_HANDLER(kNavRepaintMessage, OnNavRepaint)
+        MESSAGE_HANDLER(kTestFindStateMessage, OnTestFindState)
     END_MSG_MAP()
 
 private:
@@ -100,6 +116,7 @@ private:
     LRESULT OnEraseBkgnd(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnNotify(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnNavRepaint(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnTestFindState(UINT, WPARAM, LPARAM, BOOL&);
 
     void EnsurePreview();
     void Layout();
@@ -112,6 +129,10 @@ private:
     void HideDragLine();
     void NotifyStateChanged();
     void NotifyViewSettingsChanged();
+    void OnFindQueryChanged(const std::wstring& query, const ui::FindBar::Options& options);
+    void RunFindStep(int delta);
+    void ApplyFindResult(const std::string& result);
+    void ClearFindHighlights();
     std::string BaseUrl() const;
 
     const ui::Theme* theme() const { return services_.theme; }
@@ -127,10 +148,15 @@ private:
     ui::Splitter navSplitter_;
     ui::Splitter editorSplitter_;
     ui::DragLine dragLine_;
+    ui::FindBar findBar_;
 
     ViewSettings settings_;
     Outline currentOutline_;
     std::string lastHtml_;
+    int findMatchCount_ = 0;
+    int findCurrentIndex_ = -1;
+    int findStatus_ = 0;
+    bool findBarOpen_ = false;
     bool textDirty_ = false;
     bool rendered_ = false;
     bool renderScheduled_ = false;

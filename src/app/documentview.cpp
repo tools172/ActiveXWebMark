@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <sstream>
 #include <utility>
 
 #include "markdown/previewhtml.h"
@@ -40,6 +41,193 @@ std::vector<ui::NavPanel::Item> toNavItems(const Outline& outline)
         items.push_back(ui::NavPanel::Item{utf8ToWide(item.text), item.level});
     }
     return items;
+}
+
+// The preview find UI lives in the page: matches are wrapped in styled <span>
+// nodes and the current one is scrolled into view. The script writes a small
+// status string into a hidden element, which the host reads back through
+// IPreviewView::RunJavaScriptForResult().
+const char* kFindScript = R"JS(
+(function(){
+function res(s){
+var e=document.getElementById('awm-find-result');
+if(!e){
+e=document.createElement('div');e.id='awm-find-result';e.style.display='none';
+document.body.appendChild(e);
+}
+e.innerHTML=s;
+}
+function clearMarks(){
+var all=document.getElementsByTagName('span'),m=[];
+for(var i=0;i<all.length;i++){
+if((' '+all[i].className+' ').indexOf(' awm-find ')>-1){m.push(all[i]);}
+}
+for(var j=m.length-1;j>=0;j--){
+var x=m[j],p=x.parentNode;
+if(!p){continue;}
+while(x.firstChild){p.insertBefore(x.firstChild,x);}
+p.removeChild(x);
+if(p.normalize){p.normalize();}
+}
+}
+function select(i){
+var st=window.__awmFind;
+if(!st||!st.marks.length){res('ok 0 -1');return;}
+if(i<0){i=st.marks.length-1;}
+if(i>=st.marks.length){i=0;}
+st.index=i;
+for(var k=0;k<st.marks.length;k++){
+var mk=st.marks[k];
+mk.style.backgroundColor=(k===i)?'#ffb74d':'#ffe082';
+mk.style.color='#1f2328';
+mk.style.borderRadius='2px';
+}
+var r=st.marks[i].getBoundingClientRect();
+var d=document.documentElement,b=document.body;
+var y=r.top+((d&&d.scrollTop)||(b&&b.scrollTop)||0)-80;
+window.scrollTo(0,y<0?0:y);
+res('ok '+st.marks.length+' '+i);
+}
+clearMarks();
+var q='__QUERY__';
+if(!q){window.__awmFind=null;res('ok 0 -1');return;}
+var pattern;
+try{
+pattern=__REGEX__?q:q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+if(__WHOLE__){pattern='\\b(?:'+pattern+')\\b';}
+var re=new RegExp(pattern,__MATCHCASE__?'g':'gi');
+}catch(e){window.__awmFind=null;res('err');return;}
+var nodes=[];
+(function collect(n){
+for(var c=n.firstChild;c;c=c.nextSibling){
+if(c.nodeType===3){
+var p=c.parentNode;
+if(p&&p.id==='awm-find-result'){continue;}
+var pt=p&&p.nodeName?p.nodeName.toUpperCase():'';
+if(pt!=='SCRIPT'&&pt!=='STYLE'&&pt!=='NOSCRIPT'&&pt!=='TEXTAREA'){nodes.push(c);}
+}else if(c.nodeType===1){
+var tn=c.nodeName?c.nodeName.toUpperCase():'';
+if(tn!=='SCRIPT'&&tn!=='STYLE'&&tn!=='NOSCRIPT'&&tn!=='TEXTAREA'){collect(c);}
+}
+}
+})(document.body);
+var total=0;
+for(var i=0;i<nodes.length&&total<5000;i++){
+var node=nodes[i],text=node.nodeValue||'';
+if(!text){continue;}
+re.lastIndex=0;
+var m,found=[];
+while((m=re.exec(text))){
+if(m[0].length===0){re.lastIndex++;if(re.lastIndex>text.length){break;}continue;}
+found.push([m.index,m.index+m[0].length]);
+if(found.length>=5000){break;}
+}
+if(!found.length){continue;}
+var frag=document.createDocumentFragment(),pos=0;
+for(var j=0;j<found.length;j++){
+var a=found[j][0],b=found[j][1];
+if(a>pos){frag.appendChild(document.createTextNode(text.substring(pos,a)));}
+var mk=document.createElement('span');
+mk.className='awm-find';
+mk.style.backgroundColor='#ffe082';
+mk.style.color='#1f2328';
+frag.appendChild(mk);
+mk.appendChild(document.createTextNode(text.substring(a,b)));
+pos=b;
+total++;
+}
+if(pos<text.length){frag.appendChild(document.createTextNode(text.substring(pos)));}
+var parent=node.parentNode;
+if(parent){parent.replaceChild(frag,node);}
+}
+var all=document.getElementsByTagName('span'),marks=[];
+for(var k=0;k<all.length;k++){
+if((' '+all[k].className+' ').indexOf(' awm-find ')>-1){marks.push(all[k]);}
+}
+window.__awmFind={marks:marks,index:-1};
+select(0);
+})();
+)JS";
+
+const char* kFindStepScript = R"JS(
+(function(){
+function res(s){
+var e=document.getElementById('awm-find-result');
+if(!e){
+e=document.createElement('div');e.id='awm-find-result';e.style.display='none';
+document.body.appendChild(e);
+}
+e.innerHTML=s;
+}
+var st=window.__awmFind;
+if(!st||!st.marks||!st.marks.length){res('ok 0 -1');return;}
+var i=st.index+__DELTA__;
+if(i<0){i=st.marks.length-1;}
+if(i>=st.marks.length){i=0;}
+st.index=i;
+for(var k=0;k<st.marks.length;k++){
+var mk=st.marks[k];
+mk.style.backgroundColor=(k===i)?'#ffb74d':'#ffe082';
+mk.style.color='#1f2328';
+}
+var r=st.marks[i].getBoundingClientRect();
+var d=document.documentElement,b=document.body;
+var y=r.top+((d&&d.scrollTop)||(b&&b.scrollTop)||0)-80;
+window.scrollTo(0,y<0?0:y);
+res('ok '+st.marks.length+' '+i);
+})();
+)JS";
+
+const char* kFindClearScript = R"JS(
+(function(){
+var all=document.getElementsByTagName('span'),m=[];
+for(var i=0;i<all.length;i++){
+if((' '+all[i].className+' ').indexOf(' awm-find ')>-1){m.push(all[i]);}
+}
+for(var j=m.length-1;j>=0;j--){
+var x=m[j],p=x.parentNode;
+if(!p){continue;}
+while(x.firstChild){p.insertBefore(x.firstChild,x);}
+p.removeChild(x);
+if(p.normalize){p.normalize();}
+}
+window.__awmFind=null;
+})();
+)JS";
+
+void replaceToken(std::string& text, const std::string& token, const std::string& value)
+{
+    const std::size_t pos = text.find(token);
+    if (pos != std::string::npos) {
+        text.replace(pos, token.size(), value);
+    }
+}
+
+std::string escapeForScript(const std::wstring& value)
+{
+    const std::string utf8 = wideToUtf8(value);
+    std::string escaped;
+    escaped.reserve(utf8.size() + 8);
+    for (const char ch : utf8) {
+        switch (ch) {
+        case '\\': escaped += "\\\\"; break;
+        case '\'': escaped += "\\'"; break;
+        case '\n': escaped += "\\n"; break;
+        case '\r': escaped += "\\r"; break;
+        default:   escaped.push_back(ch); break;
+        }
+    }
+    return escaped;
+}
+
+std::string buildFindScript(const std::wstring& query, const ui::FindBar::Options& options)
+{
+    std::string script = kFindScript;
+    replaceToken(script, "__QUERY__", escapeForScript(query));
+    replaceToken(script, "__REGEX__", options.regex ? "true" : "false");
+    replaceToken(script, "__WHOLE__", options.wholeWord ? "true" : "false");
+    replaceToken(script, "__MATCHCASE__", options.matchCase ? "true" : "false");
+    return script;
 }
 
 } // namespace
@@ -133,6 +321,18 @@ bool DocumentView::Create(HWND parent, const RECT& rc, std::unique_ptr<DocumentS
     dragLine_.Create(m_hWnd);
     dragLine_.SetTheme(theme());
 
+    if (findBar_.Create(m_hWnd, zero, 103)) {
+        findBar_.SetTheme(theme());
+        findBar_.SetCallbacks(ui::FindBar::Callbacks{
+            [this](const std::wstring& query, const ui::FindBar::Options& options) {
+                OnFindQueryChanged(query, options);
+            },
+            [this]() { FindNext(); },
+            [this]() { FindPrevious(); },
+            [this]() { HideFindBar(); }});
+        findBar_.ShowWindow(SW_HIDE);
+    }
+
     settings_ = ViewSettings{};
     Layout();
     return true;
@@ -217,12 +417,205 @@ void DocumentView::OnDpiChanged()
         navPanel_.OnDpiChanged();
     }
     dragLine_.OnDpiChanged();
+    findBar_.OnDpiChanged();
     Layout();
 }
 
 bool DocumentView::ForwardAccelerator(MSG* msg)
 {
-    return preview_ != nullptr && preview_->TranslateAccelerator(msg);
+    if (preview_ == nullptr) {
+        return false;
+    }
+
+    // The IE control's accelerator table must only see keys aimed at it.
+    // Forwarding every message lets it swallow Backspace (browser "back"),
+    // breaking editing in the find bar or elsewhere.
+    const HWND host = preview_->hwnd();
+    const HWND focus = ::GetFocus();
+    if (host == nullptr || focus == nullptr) {
+        return false;
+    }
+    if (focus != host && ::IsChild(host, focus) == FALSE) {
+        return false;
+    }
+    return preview_->TranslateAccelerator(msg);
+}
+
+bool DocumentView::findBarVisible() const
+{
+    // Tracked separately from IsWindowVisible(): this view may be the hidden
+    // tab while a global layout change runs, and the bar must stay open.
+    return findBarOpen_ && findBar_.IsWindow();
+}
+
+void DocumentView::ShowFindBar()
+{
+    if (!findBar_.IsWindow()) {
+        return;
+    }
+
+    const bool wasOpen = findBarOpen_;
+    findBarOpen_ = true;
+    if (!wasOpen) {
+        findBar_.ShowWindow(SW_SHOW);
+        Layout();
+        if (!findBar_.query().empty()) {
+            OnFindQueryChanged(findBar_.query(), findBar_.options());
+        }
+    }
+    findBar_.FocusQuery();
+}
+
+void DocumentView::HideFindBar()
+{
+    if (!findBarOpen_) {
+        return;
+    }
+
+    findBarOpen_ = false;
+    ClearFindHighlights();
+    findBar_.SetStatus(L"");
+    findBar_.ShowWindow(SW_HIDE);
+    Layout();
+    FocusPrimaryPane();
+}
+
+bool DocumentView::CloseFindBarIfVisible()
+{
+    if (!findBarOpen_) {
+        return false;
+    }
+    HideFindBar();
+    return true;
+}
+
+void DocumentView::FindNext()
+{
+    if (!findBar_.IsWindow()) {
+        return;
+    }
+    if (!findBarVisible()) {
+        ShowFindBar();
+        return;
+    }
+    if (findBar_.query().empty()) {
+        findBar_.FocusQuery();
+        return;
+    }
+    RunFindStep(1);
+}
+
+void DocumentView::FindPrevious()
+{
+    if (!findBar_.IsWindow()) {
+        return;
+    }
+    if (!findBarVisible()) {
+        ShowFindBar();
+        return;
+    }
+    if (findBar_.query().empty()) {
+        findBar_.FocusQuery();
+        return;
+    }
+    RunFindStep(-1);
+}
+
+void DocumentView::OnFindQueryChanged(const std::wstring& query,
+                                      const ui::FindBar::Options& options)
+{
+    if (query.empty()) {
+        ClearFindHighlights();
+        findStatus_ = 1;
+        findBar_.SetStatus(L"");
+        return;
+    }
+
+    if (preview_ == nullptr) {
+        EnsurePreview();
+    }
+    if (preview_ == nullptr || !preview_->SupportsJavaScript()) {
+        findStatus_ = 2;
+        findBar_.SetStatus(L"当前视图不支持查找", ui::FindBar::StatusKind::Error);
+        return;
+    }
+
+    const std::string result = preview_->RunJavaScriptForResult(
+        buildFindScript(query, options), "awm-find-result");
+    ApplyFindResult(result);
+}
+
+void DocumentView::RunFindStep(int delta)
+{
+    if (preview_ == nullptr || !preview_->SupportsJavaScript()) {
+        return;
+    }
+
+    std::string script = kFindStepScript;
+    replaceToken(script, "__DELTA__", delta > 0 ? "1" : "-1");
+    ApplyFindResult(preview_->RunJavaScriptForResult(script, "awm-find-result"));
+}
+
+void DocumentView::ApplyFindResult(const std::string& result)
+{
+    findMatchCount_ = 0;
+    findCurrentIndex_ = -1;
+
+    if (result.empty()) {
+        findStatus_ = 3;
+        findBar_.SetStatus(L"查找不可用（预览未就绪）", ui::FindBar::StatusKind::Error);
+        return;
+    }
+    if (result == "err") {
+        findStatus_ = 4;
+        findBar_.SetStatus(L"正则表达式无效", ui::FindBar::StatusKind::Error);
+        return;
+    }
+
+    int count = 0;
+    int index = -1;
+    std::istringstream stream(result);
+    std::string tag;
+    if (!(stream >> tag >> count >> index) || tag != "ok") {
+        findStatus_ = 5;
+        findBar_.SetStatus(L"查找失败", ui::FindBar::StatusKind::Error);
+        return;
+    }
+
+    findStatus_ = 6;
+    findMatchCount_ = count;
+    findCurrentIndex_ = index;
+    if (count <= 0) {
+        findBar_.SetStatus(L"无结果", ui::FindBar::StatusKind::Error);
+        return;
+    }
+    findBar_.SetStatus(std::to_wstring(index + 1) + L"/" + std::to_wstring(count));
+}
+
+void DocumentView::ClearFindHighlights()
+{
+    findMatchCount_ = 0;
+    findCurrentIndex_ = -1;
+    findStatus_ = 0;
+    if (preview_ != nullptr && preview_->SupportsJavaScript()) {
+        preview_->RunJavaScript(kFindClearScript);
+    }
+}
+
+LRESULT DocumentView::OnTestFindState(UINT, WPARAM wParam, LPARAM, BOOL&)
+{
+    switch (wParam) {
+    case 0:
+        return findBarVisible() ? 1 : 0;
+    case 1:
+        return findMatchCount_;
+    case 2:
+        return findCurrentIndex_;
+    case 3:
+        return findStatus_;
+    default:
+        return 0;
+    }
 }
 
 void DocumentView::FlushEditorText()
@@ -347,15 +740,35 @@ void DocumentView::Layout()
     }
 
     RECT content = toRect(nav.content);
+    ui::RectI contentArea = nav.content;
+
+    // The find bar spans the document area (editor + preview) and pushes both
+    // panes down while it is open.
+    if (findBar_.IsWindow()) {
+        if (findBarVisible()) {
+            const int barHeight = findBar_.preferredHeight();
+            RECT barRect = content;
+            barRect.bottom = barRect.top + barHeight;
+            findBar_.MoveWindow(&barRect, TRUE);
+            findBar_.ShowWindow(SW_SHOW);
+            contentArea.y += barHeight;
+            contentArea.h = std::max(0, contentArea.h - barHeight);
+            content.top += barHeight;
+            content.bottom = std::max(content.top, content.bottom);
+        } else {
+            findBar_.ShowWindow(SW_HIDE);
+        }
+    }
+
     const bool editorVisible =
-        settings_.showEditor && editor_ != nullptr && !nav.content.empty();
+        settings_.showEditor && editor_ != nullptr && !contentArea.empty();
     if (editorVisible) {
         const int firstSize =
             settings_.split == ui::Orientation::Horizontal
-                ? static_cast<int>(std::lround(nav.content.w * settings_.sideBySideRatio))
-                : static_cast<int>(std::lround(nav.content.h * settings_.stackedRatio));
+                ? static_cast<int>(std::lround(contentArea.w * settings_.sideBySideRatio))
+                : static_cast<int>(std::lround(contentArea.h * settings_.stackedRatio));
         const ui::SplitLayout split =
-            ui::splitArea(nav.content, settings_.split, firstSize, divider, theme()->px(120),
+            ui::splitArea(contentArea, settings_.split, firstSize, divider, theme()->px(120),
                           theme()->px(120));
 
         // Side by side: the editor sits on the left and the preview in the
@@ -440,6 +853,12 @@ void DocumentView::RenderNow()
             lastHtml_ = std::move(html);
             preview_->SetHtml(lastHtml_, options.baseFileUrl);
         }
+    }
+
+    // The preview document was rewritten (or the tab was activated); restore
+    // the find highlights on the fresh DOM.
+    if (preview_ != nullptr && findBarVisible() && !findBar_.query().empty()) {
+        OnFindQueryChanged(findBar_.query(), findBar_.options());
     }
 
     textDirty_ = false;

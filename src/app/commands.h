@@ -17,6 +17,11 @@ constexpr int kViewSplitStacked = 1013;
 constexpr int kViewToggleSplit = 1014;
 constexpr int kViewScrollSync = 1015;
 
+// Edit commands.
+constexpr int kEditFind = 1020;
+constexpr int kEditFindNext = 1021;
+constexpr int kEditFindPrevious = 1022;
+
 // Help commands.
 constexpr int kHelpAbout = 1100;
 

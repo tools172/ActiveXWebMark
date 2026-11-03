@@ -212,6 +212,46 @@ bool IePreviewView::RunJavaScript(const std::string& script)
     return SUCCEEDED(window->execScript(code, CComBSTR(L"JavaScript"), &result));
 }
 
+std::string IePreviewView::RunJavaScriptForResult(const std::string& script,
+                                                  const std::string& resultElementId)
+{
+    CComPtr<IHTMLWindow2> window = Window();
+    if (window == nullptr) {
+        return {};
+    }
+
+    const std::wstring wideScript = utf8ToWide(script);
+    CComBSTR code(wideScript.c_str());
+    CComVariant result;
+    if (FAILED(window->execScript(code, CComBSTR(L"JavaScript"), &result))) {
+        return {};
+    }
+
+    CComPtr<IHTMLDocument2> document = Document();
+    if (document == nullptr) {
+        return {};
+    }
+    CComQIPtr<IHTMLDocument3> document3(document);
+    if (document3 == nullptr) {
+        return {};
+    }
+
+    const std::wstring wideId = utf8ToWide(resultElementId);
+    CComPtr<IHTMLElement> holder;
+    if (FAILED(document3->getElementById(CComBSTR(wideId.c_str()), &holder)) ||
+        holder == nullptr) {
+        return {};
+    }
+
+    // innerHTML is also readable for display:none elements (innerText is not
+    // consistently), which is how the scroll map already bridges results out.
+    CComBSTR text;
+    if (FAILED(holder->get_innerHTML(&text)) || text.m_str == nullptr) {
+        return {};
+    }
+    return wideToUtf8(std::wstring(text.m_str, text.Length()));
+}
+
 void IePreviewView::SetCallbacks(PreviewCallbacks callbacks)
 {
     callbacks_ = std::move(callbacks);
