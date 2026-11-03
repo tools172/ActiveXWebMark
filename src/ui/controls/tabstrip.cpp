@@ -12,6 +12,10 @@ namespace awm::ui {
 
 namespace {
 
+// Tool IDs 1..3 are the fixed controls (nav toggle and scroll arrows); tab
+// tooltips start safely above them.
+constexpr UINT kTabTooltipBase = 0x100;
+
 Gdiplus::Color toGdiColor(const Color& color)
 {
     return Gdiplus::Color(255, color.r, color.g, color.b);
@@ -541,30 +545,60 @@ void TabStrip::updateTooltips()
     const wchar_t* leftText = L"显示前面的标签";
     const wchar_t* rightText = L"显示后面的标签";
 
+    const auto addTool = [this](UINT id, const RECT& rect, const wchar_t* text) {
+        TOOLINFO info = {};
+        info.cbSize = sizeof(info);
+        info.uFlags = TTF_SUBCLASS;
+        info.hwnd = m_hWnd;
+        info.uId = id;
+        info.rect = rect;
+        info.lpszText = const_cast<LPWSTR>(text);
+        tooltip_.AddTool(&info);
+    };
+
     if (!tooltipAdded_) {
-        const auto addTool = [this](UINT id, const RECT& rect, const wchar_t* text) {
-            TOOLINFO info = {};
-            info.cbSize = sizeof(info);
-            info.uFlags = TTF_SUBCLASS;
-            info.hwnd = m_hWnd;
-            info.uId = id;
-            info.rect = rect;
-            info.lpszText = const_cast<LPWSTR>(text);
-            tooltip_.AddTool(&info);
-        };
         addTool(1, navRect, navText);
         addTool(2, leftRect, leftText);
         addTool(3, rightRect, rightText);
         tooltipAdded_ = true;
-        return;
+    } else {
+        tooltip_.SetToolRect(m_hWnd, 1, &navRect);
+        tooltip_.UpdateTipText(navText, m_hWnd, 1);
+        tooltip_.SetToolRect(m_hWnd, 2, &leftRect);
+        tooltip_.UpdateTipText(leftText, m_hWnd, 2);
+        tooltip_.SetToolRect(m_hWnd, 3, &rightRect);
+        tooltip_.UpdateTipText(rightText, m_hWnd, 3);
     }
 
-    tooltip_.SetToolRect(m_hWnd, 1, &navRect);
-    tooltip_.UpdateTipText(navText, m_hWnd, 1);
-    tooltip_.SetToolRect(m_hWnd, 2, &leftRect);
-    tooltip_.UpdateTipText(leftText, m_hWnd, 2);
-    tooltip_.SetToolRect(m_hWnd, 3, &rightRect);
-    tooltip_.UpdateTipText(rightText, m_hWnd, 3);
+    // One tool per tab: hovering shows the full path, which the ellipsized tab
+    // title cannot. Hidden tabs keep an empty rect so they never trigger.
+    tabTooltipTexts_.resize(items_.size());
+    for (std::size_t i = 0; i < items_.size(); ++i) {
+        const Item& item = items_[i];
+        tabTooltipTexts_[i] = item.tooltip.empty()
+                                  ? (item.title.empty() ? std::wstring(L"未命名") : item.title)
+                                  : item.tooltip;
+    }
+
+    const int count = static_cast<int>(items_.size());
+    for (int i = 0; i < count; ++i) {
+        const UINT id = kTabTooltipBase + static_cast<UINT>(i);
+        const auto index = static_cast<std::size_t>(i);
+        const bool visible =
+            index < layout_.slots.size() && layout_.slots[index].visible;
+        const RECT rect = visible ? toRect(layout_.slots[index].rect) : RECT{0, 0, 0, 0};
+        const wchar_t* text = tabTooltipTexts_[index].c_str();
+        if (i < tabTooltipCount_) {
+            tooltip_.SetToolRect(m_hWnd, id, &rect);
+            tooltip_.UpdateTipText(text, m_hWnd, id);
+        } else {
+            addTool(id, rect, text);
+        }
+    }
+    for (int i = count; i < tabTooltipCount_; ++i) {
+        tooltip_.DelTool(m_hWnd, kTabTooltipBase + static_cast<UINT>(i));
+    }
+    tabTooltipCount_ = count;
 }
 
 LRESULT TabStrip::OnPaint(UINT, WPARAM, LPARAM, BOOL&)
@@ -898,6 +932,36 @@ LRESULT TabStrip::OnMouseWheel(UINT, WPARAM wParam, LPARAM, BOOL&)
         firstVisible_ = next;
         relayout();
         Invalidate(FALSE);
+    }
+    return 0;
+}
+
+LRESULT TabStrip::OnContextMenu(UINT, WPARAM, LPARAM lParam, BOOL&)
+{
+    if (!callbacks_.onContextMenu) {
+        return 0;
+    }
+
+    POINT screen{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    int index = -1;
+    if (screen.x == -1 && screen.y == -1) {
+        // Keyboard invocation (Shift+F10 / menu key): anchor on the active tab.
+        index = activeIndex_;
+        if (index < 0 || static_cast<std::size_t>(index) >= layout_.slots.size() ||
+            !layout_.slots[static_cast<std::size_t>(index)].visible) {
+            return 0;
+        }
+        const RectI& rect = layout_.slots[static_cast<std::size_t>(index)].rect;
+        screen = POINT{rect.x + rect.w / 2, rect.y + rect.h / 2};
+        ClientToScreen(&screen);
+    } else {
+        POINT client = screen;
+        ScreenToClient(&client);
+        index = hitTab(client);
+    }
+
+    if (index >= 0) {
+        callbacks_.onContextMenu(index, screen);
     }
     return 0;
 }

@@ -107,6 +107,11 @@ private:
     void ActivateTab(int index);
     void CloseTab(int index);
     void CycleTab(int delta);
+    /// Closes every tab at `indices` (ascending). Confirms dirty tabs first and
+    /// aborts before closing anything if the user cancels. `preferredIndex` is
+    /// activated when the previously active tab is among the closed ones.
+    void CloseTabsAt(std::vector<int> indices, int preferredIndex);
+    void ShowTabContextMenu(int index, POINT screen);
 
     bool ConfirmClose(DocumentView& view);
     bool ConfirmCloseAll();

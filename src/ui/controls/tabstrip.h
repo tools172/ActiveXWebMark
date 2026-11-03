@@ -21,7 +21,7 @@ public:
 
     struct Item {
         std::wstring title;
-        std::wstring tooltip; ///< Full path (unused by painting; reserved for tooltips).
+        std::wstring tooltip; ///< Text shown on hover: the full path when saved.
         bool dirty = false;
     };
 
@@ -30,6 +30,9 @@ public:
         std::function<void(int)> onClose;
         std::function<void()> onEmptyDoubleClick;
         std::function<void()> onToggleNav;
+        /// Right-click on a tab (or Shift+F10). Receives the tab index and the
+        /// screen position where the menu should open.
+        std::function<void(int, POINT)> onContextMenu;
     };
 
     bool Create(HWND parent, const RECT& rc, UINT id);
@@ -58,6 +61,7 @@ public:
         MESSAGE_HANDLER(WM_MOUSEMOVE, OnMouseMove)
         MESSAGE_HANDLER(WM_MOUSELEAVE, OnMouseLeave)
         MESSAGE_HANDLER(WM_MOUSEWHEEL, OnMouseWheel)
+        MESSAGE_HANDLER(WM_CONTEXTMENU, OnContextMenu)
         MESSAGE_HANDLER(WM_SETCURSOR, OnSetCursor)
         MESSAGE_HANDLER(kTestStateMessage, OnTestState)
     END_MSG_MAP()
@@ -72,6 +76,7 @@ private:
     LRESULT OnMouseMove(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnMouseLeave(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnMouseWheel(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnContextMenu(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnSetCursor(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnTestState(UINT, WPARAM, LPARAM, BOOL&);
 
@@ -114,6 +119,9 @@ private:
     bool rightArrowHover_ = false;
     bool tooltipAdded_ = false;
     CToolTipCtrl tooltip_;
+    /// Owned tooltip strings for the per-tab tools (tooltip IDs reuse indices).
+    std::vector<std::wstring> tabTooltipTexts_;
+    int tabTooltipCount_ = 0;
 };
 
 } // namespace awm::ui

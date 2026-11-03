@@ -5,6 +5,7 @@
 #include "apppaths.h"
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <utility>
 
@@ -47,6 +48,48 @@ std::wstring menuLabelForRecent(const std::wstring& path, std::size_t index)
         label = label.substr(0, 87) + L"…";
     }
     return label;
+}
+
+void copyTextToClipboard(HWND owner, const std::wstring& text)
+{
+    if (text.empty() || !::OpenClipboard(owner)) {
+        return;
+    }
+    ::EmptyClipboard();
+    const std::size_t bytes = (text.size() + 1) * sizeof(wchar_t);
+    HGLOBAL memory = ::GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (memory != nullptr) {
+        void* target = ::GlobalLock(memory);
+        if (target != nullptr) {
+            std::memcpy(target, text.c_str(), bytes);
+            ::GlobalUnlock(memory);
+        }
+        if (::SetClipboardData(CF_UNICODETEXT, memory) == nullptr) {
+            ::GlobalFree(memory);
+        }
+    }
+    ::CloseClipboard();
+}
+
+void revealInExplorer(HWND owner, const std::wstring& path)
+{
+    if (path.empty()) {
+        return;
+    }
+
+    std::wstring arguments = L"/select,\"" + path + L"\"";
+    const INT_PTR result = reinterpret_cast<INT_PTR>(
+        ::ShellExecuteW(owner, L"open", L"explorer.exe", arguments.c_str(), nullptr,
+                        SW_SHOWNORMAL));
+    if (result > 32) {
+        return;
+    }
+
+    // The file may have been moved or deleted; fall back to its folder.
+    const std::wstring directory = fileDirectory(path);
+    if (!directory.empty()) {
+        ::ShellExecuteW(owner, L"open", directory.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
 }
 
 } // namespace
@@ -206,7 +249,8 @@ LRESULT MainWindow::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
         [this](int index) { ActivateTab(index); },
         [this](int index) { CloseTab(index); },
         [this]() { SendCommand(cmd::kFileOpen); },
-        [this]() { SendCommand(cmd::kViewNav); }});
+        [this]() { SendCommand(cmd::kViewNav); },
+        [this](int index, POINT screen) { ShowTabContextMenu(index, screen); }});
 
     CreateMenuBar();
     RebuildRecentMenu();
@@ -638,6 +682,177 @@ void MainWindow::CloseTab(int index)
         UpdateWindowTitle();
         UpdateMenuState();
         Layout();
+    }
+}
+
+void MainWindow::CloseTabsAt(std::vector<int> indices, int preferredIndex)
+{
+    indices.erase(std::remove_if(indices.begin(), indices.end(),
+                                 [this](int index) {
+                                     return index < 0 ||
+                                            index >= static_cast<int>(views_.size());
+                                 }),
+                  indices.end());
+    std::sort(indices.begin(), indices.end());
+    indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+    if (indices.empty()) {
+        return;
+    }
+
+    // Confirm every dirty document before touching the tab list, so a Cancel
+    // leaves all tabs in place instead of closing only part of the group.
+    for (const int index : indices) {
+        if (!ConfirmClose(*views_[static_cast<std::size_t>(index)])) {
+            return;
+        }
+    }
+
+    DocumentView* preferredView =
+        (preferredIndex >= 0 && preferredIndex < static_cast<int>(views_.size()))
+            ? views_[static_cast<std::size_t>(preferredIndex)].get()
+            : nullptr;
+    DocumentView* activeView = ActiveView();
+
+    const bool activeClosed =
+        activeIndex_ < 0 ||
+        std::binary_search(indices.begin(), indices.end(), activeIndex_);
+    int removedBeforeActive = 0;
+    for (const int index : indices) {
+        if (index < activeIndex_) {
+            ++removedBeforeActive;
+        }
+    }
+
+    if (activeClosed && activeView != nullptr) {
+        activeView->Deactivate();
+    }
+
+    for (auto it = indices.rbegin(); it != indices.rend(); ++it) {
+        views_.erase(views_.begin() + *it);
+    }
+
+    if (views_.empty()) {
+        activeIndex_ = -1;
+        UpdateTabStrip();
+        UpdateWindowTitle();
+        UpdateMenuState();
+        Layout();
+        Invalidate(FALSE);
+        return;
+    }
+
+    if (!activeClosed) {
+        activeIndex_ -= removedBeforeActive;
+        UpdateTabStrip();
+        UpdateWindowTitle();
+        UpdateMenuState();
+        Layout();
+        return;
+    }
+
+    int target = -1;
+    for (int i = 0; i < static_cast<int>(views_.size()); ++i) {
+        if (views_[static_cast<std::size_t>(i)].get() == preferredView) {
+            target = i;
+            break;
+        }
+    }
+    if (target < 0) {
+        target = std::clamp(activeIndex_ - removedBeforeActive, 0,
+                            static_cast<int>(views_.size()) - 1);
+    }
+    activeIndex_ = -1;
+    UpdateTabStrip();
+    ActivateTab(target);
+}
+
+void MainWindow::ShowTabContextMenu(int index, POINT screen)
+{
+    if (index < 0 || index >= static_cast<int>(views_.size())) {
+        return;
+    }
+
+    DocumentView& view = *views_[static_cast<std::size_t>(index)];
+    const std::wstring& path = view.session().path();
+    const bool hasPath = view.session().hasPath();
+    const int count = static_cast<int>(views_.size());
+
+    enum MenuCommand : UINT {
+        kClose = 1,
+        kCloseOthers,
+        kCloseLeft,
+        kCloseRight,
+        kReveal,
+        kCopyPath,
+        kCopyName,
+    };
+
+    HMENU menu = ::CreatePopupMenu();
+    if (menu == nullptr) {
+        return;
+    }
+
+    const UINT pathFlags = MF_STRING | (hasPath ? MF_ENABLED : MF_GRAYED);
+    ::AppendMenuW(menu, MF_STRING, kClose, L"关闭(&C)\tCtrl+W");
+    ::AppendMenuW(menu, MF_STRING | (count > 1 ? MF_ENABLED : MF_GRAYED), kCloseOthers,
+                  L"关闭其他标签(&O)");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(menu, MF_STRING | (index > 0 ? MF_ENABLED : MF_GRAYED), kCloseLeft,
+                  L"关闭左侧标签(&L)");
+    ::AppendMenuW(menu, MF_STRING | (index + 1 < count ? MF_ENABLED : MF_GRAYED),
+                  kCloseRight, L"关闭右侧标签(&R)");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(menu, pathFlags, kReveal, L"在资源管理器中显示(&E)");
+    ::AppendMenuW(menu, pathFlags, kCopyPath, L"复制文件路径(&P)");
+    ::AppendMenuW(menu, pathFlags, kCopyName, L"复制文件名(&N)");
+
+    ::SetForegroundWindow(m_hWnd);
+    const UINT command = ::TrackPopupMenuEx(
+        menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, screen.x, screen.y, m_hWnd, nullptr);
+    ::DestroyMenu(menu);
+    ::PostMessageW(m_hWnd, WM_NULL, 0, 0);
+
+    switch (command) {
+    case kClose:
+        CloseTab(index);
+        break;
+    case kCloseOthers: {
+        std::vector<int> indices;
+        for (int i = 0; i < count; ++i) {
+            if (i != index) {
+                indices.push_back(i);
+            }
+        }
+        CloseTabsAt(std::move(indices), index);
+        break;
+    }
+    case kCloseLeft: {
+        std::vector<int> indices;
+        for (int i = 0; i < index; ++i) {
+            indices.push_back(i);
+        }
+        CloseTabsAt(std::move(indices), index);
+        break;
+    }
+    case kCloseRight: {
+        std::vector<int> indices;
+        for (int i = index + 1; i < count; ++i) {
+            indices.push_back(i);
+        }
+        CloseTabsAt(std::move(indices), index);
+        break;
+    }
+    case kReveal:
+        revealInExplorer(m_hWnd, path);
+        break;
+    case kCopyPath:
+        copyTextToClipboard(m_hWnd, path);
+        break;
+    case kCopyName:
+        copyTextToClipboard(m_hWnd, fileName(path));
+        break;
+    default:
+        break;
     }
 }
 
