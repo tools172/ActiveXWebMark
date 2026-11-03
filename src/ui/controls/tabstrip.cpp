@@ -84,7 +84,7 @@ void drawCloseIcon(Gdiplus::Graphics& graphics, const RECT& rc, bool hovered,
         graphics.FillEllipse(&background, Gdiplus::RectF(left, top, right - left, bottom - top));
     }
 
-    const float inset = (right - left) * 0.33f;
+    const float inset = (right - left) * 0.30f;
     Gdiplus::Pen pen(toGdiColor(hovered ? palette.textPrimary : palette.textSecondary), 1.4f);
     pen.SetStartCap(Gdiplus::LineCapRound);
     pen.SetEndCap(Gdiplus::LineCapRound);
@@ -276,7 +276,7 @@ void TabStrip::SetActiveIndex(int index)
 
 int TabStrip::preferredHeight() const
 {
-    return theme_ != nullptr ? theme_->px(38) : 38;
+    return theme_ != nullptr ? theme_->px(32) : 32;
 }
 
 void TabStrip::SetCallbacks(Callbacks callbacks)
@@ -319,11 +319,11 @@ void TabStrip::relayout()
 
     RECT client = {};
     GetClientRect(&client);
-    const int top = theme_->px(7);
+    const int top = theme_->px(5);
     const int height = std::max(0, static_cast<int>(client.bottom) - top);
     const int areaRight = tabAreaRight();
     const int padding = theme_->px(8);
-    const int gap = theme_->px(4);
+    const int gap = theme_->px(3);
     const int arrow = arrowSize();
 
     const bool fits = widths_.empty() || tabsTotalWidth(widths_, gap) + padding * 2 <= areaRight;
@@ -334,7 +334,7 @@ void TabStrip::relayout()
         overflowLeft_ = false;
         overflowRight_ = false;
         const RectI area{0, top, areaRight, height};
-        layout_ = layoutTabs(area, widths_, gap, padding, theme_->px(18), firstVisible_);
+        layout_ = layoutTabs(area, widths_, gap, padding, theme_->px(16), firstVisible_);
         updateTooltips();
         return;
     }
@@ -345,7 +345,7 @@ void TabStrip::relayout()
     maxFirstVisible_ = tabStripTailStart(widths_, available, gap, padding);
     firstVisible_ = std::clamp(firstVisible_, 0, maxFirstVisible_);
     const RectI area{arrow, top, available, height};
-    layout_ = layoutTabs(area, widths_, gap, padding, theme_->px(18), firstVisible_);
+    layout_ = layoutTabs(area, widths_, gap, padding, theme_->px(16), firstVisible_);
     overflowLeft_ = firstVisible_ > 0;
     overflowRight_ = firstVisible_ < maxFirstVisible_;
     updateTooltips();
@@ -364,7 +364,7 @@ void TabStrip::ensureActiveVisible()
 
     const int areaRight = tabAreaRight();
     const int padding = theme_->px(8);
-    const int gap = theme_->px(4);
+    const int gap = theme_->px(3);
     const int arrow = arrowSize();
     const bool fits = tabsTotalWidth(widths_, gap) + padding * 2 <= areaRight;
     if (fits) {
@@ -390,13 +390,17 @@ std::vector<int> TabStrip::measureWidths(HDC dc) const
         return widths;
     }
 
-    // Measure with the semibold face used for the selected tab so the title
-    // never truncates merely because it is drawn slightly wider.
-    const HGDIOBJ oldFont = ::SelectObject(dc, theme_->uiFontSemibold());
-    const int minWidth = theme_->px(110);
-    const int maxWidth = theme_->px(280);
-    const int padding = theme_->px(14);
-    const int extra = theme_->px(18) + theme_->px(14);
+    // Active and inactive tabs use the same font: the active state changes
+    // only the surface, accent and text color, so activating a tab never
+    // shifts or reflows its title. Measure with that same font.
+    const HGDIOBJ oldFont = ::SelectObject(dc, theme_->smallFont());
+    const int minWidth = theme_->px(88);
+    const int maxWidth = theme_->px(220);
+    const int padding = theme_->px(10);
+    // The measured title already includes the left/right text padding; only a
+    // small slot beside the close button is needed. Reserving a full 18+14px
+    // here left a visible gap between the title and the close icon.
+    const int extra = theme_->px(16);
 
     for (const Item& item : items_) {
         const wchar_t* title = item.title.empty() ? L"未命名" : item.title.c_str();
@@ -479,7 +483,7 @@ RECT TabStrip::leftArrowRect() const
 {
     RECT client = {};
     GetClientRect(&client);
-    const int top = theme_ != nullptr ? theme_->px(7) : 7;
+    const int top = theme_ != nullptr ? theme_->px(5) : 5;
     const int bottom = std::max(top, static_cast<int>(client.bottom) - 1);
     return toRect(tabStripLeftArrowRect(top, bottom, arrowSize()));
 }
@@ -487,7 +491,7 @@ RECT TabStrip::leftArrowRect() const
 RECT TabStrip::rightArrowRect() const
 {
     const int right = tabAreaRight();
-    const int top = theme_ != nullptr ? theme_->px(7) : 7;
+    const int top = theme_ != nullptr ? theme_->px(5) : 5;
     RECT client = {};
     GetClientRect(&client);
     const int bottom = std::max(top, static_cast<int>(client.bottom) - 1);
@@ -627,6 +631,41 @@ void TabStrip::paint(HDC dc, const RECT& client)
         }
     }
 
+    // Chrome-style separators between inactive tabs. They need enough contrast
+    // to read at normal size, so use a semi-transparent text color instead of
+    // the very light border color, and keep them tall enough to be noticed.
+    // Separators touching the selected or hovered tab stay hidden.
+    if (layout_.slots.size() > 1) {
+        const float inset = static_cast<float>(theme_->px(5));
+        const Gdiplus::Color separatorColor(140, palette.textSecondary.r,
+                                            palette.textSecondary.g,
+                                            palette.textSecondary.b);
+        const float separatorWidth =
+            static_cast<float>(std::max(1, theme_->px(1)));
+        Gdiplus::Pen separator(separatorColor, separatorWidth);
+        separator.SetStartCap(Gdiplus::LineCapFlat);
+        separator.SetEndCap(Gdiplus::LineCapFlat);
+        for (std::size_t i = 0; i + 1 < layout_.slots.size(); ++i) {
+            const TabSlot& left = layout_.slots[i];
+            const TabSlot& right = layout_.slots[i + 1];
+            if (!left.visible || !right.visible) {
+                continue;
+            }
+            const int index = static_cast<int>(i);
+            if (index == activeIndex_ || index + 1 == activeIndex_ ||
+                index == hoverIndex_ || index + 1 == hoverIndex_) {
+                continue;
+            }
+            const float x =
+                static_cast<float>((left.rect.right() + right.rect.left()) / 2) + 0.5f;
+            const float top = static_cast<float>(left.rect.top()) + inset;
+            const float bottom = static_cast<float>(left.rect.bottom()) - inset;
+            if (bottom > top) {
+                graphics.DrawLine(&separator, x, top, x, bottom);
+            }
+        }
+    }
+
     // Icons / dirty dots.
     for (std::size_t i = 0; i < layout_.slots.size(); ++i) {
         const TabSlot& slot = layout_.slots[i];
@@ -675,17 +714,25 @@ void TabStrip::paint(HDC dc, const RECT& client)
         const Item& item = items_[i];
         const bool selected = static_cast<int>(i) == activeIndex_;
         const bool hovered = static_cast<int>(i) == hoverIndex_;
-        ::SelectObject(dc, selected ? theme_->uiFontSemibold() : theme_->uiFont());
+        ::SelectObject(dc, theme_->smallFont());
         ::SetTextColor(dc, ToColorRef(selected || hovered ? palette.textPrimary
                                                           : palette.textSecondary));
 
         RECT textRect = toRect(slot.rect);
-        textRect.left += theme_->px(14);
+        textRect.left += theme_->px(10);
         textRect.right = slot.closeRect.empty()
                              ? static_cast<LONG>(slot.rect.x + slot.rect.w - theme_->px(10))
-                             : static_cast<LONG>(slot.closeRect.x - theme_->px(4));
+                             : static_cast<LONG>(slot.closeRect.x - theme_->px(2));
         if (textRect.right <= textRect.left) {
             continue;
+        }
+
+        // A tiny downward offset on the selected tab gives a tactile "pressed"
+        // response without touching the horizontal text/close-icon gap.
+        if (selected) {
+            const LONG offset = theme_->px(1);
+            textRect.top += offset;
+            textRect.bottom += offset;
         }
         const wchar_t* title = item.title.empty() ? L"未命名" : item.title.c_str();
         ::DrawTextW(dc, title, -1, &textRect,
@@ -697,7 +744,7 @@ void TabStrip::paint(HDC dc, const RECT& client)
     if (overflowLeft_ || overflowRight_) {
         Gdiplus::Graphics overlay(dc);
         overlay.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-        const int top = theme_->px(7);
+        const int top = theme_->px(5);
         const int bottom = std::max(top, static_cast<int>(client.bottom) - 1);
         const int fadeWidth = theme_->px(18);
         if (overflowLeft_) {

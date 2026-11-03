@@ -261,7 +261,7 @@ function Get-StripGeometry([IntPtr]$strip) {
     $navSize = [int][Math]::Floor((24 * $dpi / 96.0) + 0.5)
     $margin = [int][Math]::Floor((8 * $dpi / 96.0) + 0.5)
     $gap = [int][Math]::Floor((8 * $dpi / 96.0) + 0.5)
-    $top = [int][Math]::Floor((7 * $dpi / 96.0) + 0.5)
+    $top = [int][Math]::Floor((5 * $dpi / 96.0) + 0.5)
     $bottom = [Math]::Max($top, $client.B - 1)
     $navLeft = $client.R - $margin - $navSize
     $navTop = [Math]::Max(0, [int](($client.B - 1 - $navSize) / 2))
