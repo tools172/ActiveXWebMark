@@ -7,7 +7,12 @@
     Launches the built application with generated Markdown tabs and exercises:
       * tab overflow: clicking > repeatedly must reach the end, then < must
         return to the start (this also catches swapped arrow handlers);
-      * sidebar toggle: the nav-visible state must flip on each click.
+      * sidebar toggle: the nav-visible state must flip on each click;
+      * tooltips: every tab must register its own tooltip tool (fixed controls
+        register three more);
+      * right-click menu: opening it on a tab must show the close group and the
+        path group, with left/right closes disabled when there is nothing on
+        that side, and cancelling must close no tab.
 
     The tab strip exposes a diagnostic message (WM_APP + 0x51) returning only
     integers, so this test works across processes without pointer marshaling:
@@ -41,9 +46,10 @@
       2. 设置 AWM_SETTINGS_DIR，把被测程序的设置/会话隔离到输出目录
       3. Start-Process 启动被测程序，按 PID 查找主窗口和 AwmTabStrip 子窗口
       4. 读取标签栏状态和按钮矩形，执行滚动箭头边界测试与目录开关测试
-      5. 每一步用 PrintWindow 截图，失败信息汇总到 $script:failures
-      6. finally 中发送 WM_CLOSE 优雅退出，超时则强制结束进程，并恢复环境变量
-      7. 最后输出 PASS/FAIL，并用 exit 0/exit 1 返回测试结果
+      5. 检查 tooltip 工具数，并在第一个标签上打开右键菜单验证分组、顺序和禁用状态
+      6. 每一步用 PrintWindow 截图，失败信息汇总到 $script:failures
+      7. finally 中发送 WM_CLOSE 优雅退出，超时则强制结束进程，并恢复环境变量
+      8. 最后输出 PASS/FAIL，并用 exit 0/exit 1 返回测试结果
 
     之所以用 SendMessage 而不是真实鼠标：不抢焦点、不移动用户鼠标，
     在普通 PowerShell 窗口里也能稳定复现。按钮坐标按 DPI 和控件客户端尺寸计算。
@@ -135,12 +141,23 @@ public static class AwmTabStripSmoke
         IntPtr lParam, uint flags, uint timeout, out IntPtr result);
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+    [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hWnd, ref POINT pt);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdc, uint flags);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern int GetMenuItemCount(IntPtr hMenu);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetMenuStringW(IntPtr hMenu, uint item, StringBuilder sb, int max,
+        uint flags);
+    [DllImport("user32.dll")] public static extern uint GetMenuState(IntPtr hMenu, uint item,
+        uint flags);
 
     // 与 Win32 RECT 的字段布局保持一致。
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int L, T, R, B; }
+
+    // 屏幕坐标点，用于把控件客户区坐标换算成右键菜单锚点。
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT { public int X, Y; }
 
     // 按进程 ID + 窗口类名查找窗口。不能依赖窗口标题，因为标题会随文档变化。
     public static IntPtr FindClass(uint pid, string cls)
@@ -294,6 +311,60 @@ function Click-Rect([IntPtr]$strip, $rect) {
     return $true
 }
 
+# 读取标签栏 tooltip 控件注册的工具数：3 个固定控件（目录开关、左右箭头）
+# 加上每个标签一个。TTM_GETTOOLCOUNT 只返回整数，跨进程调用安全。
+function Get-TooltipToolCount([System.Diagnostics.Process]$proc) {
+    $tip = [AwmTabStripSmoke]::FindClass([uint32]$proc.Id, "tooltips_class32")
+    if ($tip -eq [IntPtr]::Zero) {
+        return -1
+    }
+    return [AwmTabStripSmoke]::SendMessageW(
+        $tip, 0x040D, [IntPtr]::Zero, [IntPtr]::Zero).ToInt64()
+}
+
+# 在第一个可见标签上打开右键菜单。WM_CONTEXTMENU 必须用 PostMessage：
+# TrackPopupMenuEx 会阻塞被测窗口的消息循环，SendMessage 会让脚本一起卡住。
+# 返回 popup 菜单窗口（类名 #32768）；截图和检查完成后由调用方取消菜单。
+function Open-TabContextMenu([System.Diagnostics.Process]$proc, [IntPtr]$strip) {
+    $client = New-Object AwmTabStripSmoke+RECT
+    [void][AwmTabStripSmoke]::GetClientRect($strip, [ref]$client)
+    $dpi = [AwmTabStripSmoke]::GetDpiForWindow($strip)
+    if ($dpi -le 0) {
+        $dpi = 96
+    }
+    # 标签区从滚动箭头右边缘开始，第一个标签再向右留 8px 内边距。
+    $arrow = [int][Math]::Floor((22 * $dpi / 96.0) + 0.5)
+    $padding = [int][Math]::Floor((8 * $dpi / 96.0) + 0.5)
+    $pt = New-Object AwmTabStripSmoke+POINT
+    $pt.X = $arrow + $padding + 10
+    $pt.Y = [int]($client.B / 2)
+    [void][AwmTabStripSmoke]::ClientToScreen($strip, [ref]$pt)
+    $lp = [IntPtr][int](($pt.Y -shl 16) -bor ($pt.X -band 0xffff))
+    [void][AwmTabStripSmoke]::PostMessageW($strip, 0x007B, $strip, $lp)
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 100
+        $menu = [AwmTabStripSmoke]::FindClass([uint32]$proc.Id, "#32768")
+        if ($menu -ne [IntPtr]::Zero) {
+            return $menu
+        }
+    }
+    return [IntPtr]::Zero
+}
+
+# 用 WM_CANCELMODE 关掉右键菜单（等价于按 Esc），并等待菜单窗口销毁。
+function Close-TabContextMenu([System.Diagnostics.Process]$proc, [IntPtr]$menu) {
+    [void][AwmTabStripSmoke]::PostMessageW($menu, 0x001F, [IntPtr]::Zero, [IntPtr]::Zero)
+    $deadline = [DateTime]::UtcNow.AddSeconds(3)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 100
+        if ([AwmTabStripSmoke]::FindClass([uint32]$proc.Id, "#32768") -eq [IntPtr]::Zero) {
+            return
+        }
+    }
+}
+
 # 用 PrintWindow 抓取窗口或客户区并保存为 PNG，供人工复核。
 # clientOnly=true 用于标签栏；false 用于包含目录侧栏的主窗口。
 function Save-WindowBitmap([IntPtr]$hwnd, [string]$path, [bool]$clientOnly) {
@@ -409,6 +480,49 @@ try {
     $state = Get-StripState $strip
     $navBack = (($state.Flags -band 4) -ne 0)
     Check ($navBack -eq $navBefore) "再次点击目录开关后恢复原状态"
+
+    # 6.6 tooltip 测试：每个标签必须各注册一个工具，加上 3 个固定控件。
+    #     标签由于省略号无法显示完整路径，悬浮提示依赖这些工具。
+    $toolCount = Get-TooltipToolCount $proc
+    Check (($toolCount -eq $TabCount + 3)) "每个标签都有独立 tooltip 工具"
+
+    # 6.7 右键菜单测试：在第一个标签上打开菜单，检查分组、顺序和禁用状态；
+    #     取消后不能关闭任何标签（tooltip 工具数应保持不变）。
+    $menu = Open-TabContextMenu $proc $strip
+    if ($menu -ne [IntPtr]::Zero) {
+        # MN_GETHMENU：菜单窗口不通过 GetMenu 暴露句柄，需发送该消息获取。
+        $hMenu = [AwmTabStripSmoke]::SendMessageW(
+            $menu, 0x01E1, [IntPtr]::Zero, [IntPtr]::Zero)
+        $itemCount = [AwmTabStripSmoke]::GetMenuItemCount($hMenu)
+        Check (($itemCount -eq 9)) "右键菜单包含 7 个项目与 2 条分割线"
+
+        $labels = @{}
+        foreach ($index in @(0, 1, 3, 4, 6, 7, 8)) {
+            $sb = New-Object System.Text.StringBuilder 256
+            [void][AwmTabStripSmoke]::GetMenuStringW(
+                $hMenu, [uint32]$index, $sb, 256, 0x0400)
+            $labels[$index] = $sb.ToString()
+        }
+        Check ($labels[0] -like "关闭*") "第一项：关闭当前标签"
+        Check ($labels[1] -like "关闭其他标签*") "第二项：关闭其他标签"
+        Check ($labels[3] -like "关闭左侧标签*") "第三项：关闭左侧标签"
+        Check ($labels[4] -like "关闭右侧标签*") "第四项：关闭右侧标签"
+        Check ($labels[6] -like "在资源管理器中显示*") "在资源管理器中显示项存在"
+        Check ($labels[7] -like "复制文件路径*") "复制文件路径项存在"
+        Check ($labels[8] -like "复制文件名*") "复制文件名项存在"
+
+        # GetMenuState 返回低字节 MF_ 标志；MF_GRAYED/MF_DISABLED 非零即禁用。
+        $leftState = [AwmTabStripSmoke]::GetMenuState($hMenu, [uint32]3, 0x0400)
+        $rightState = [AwmTabStripSmoke]::GetMenuState($hMenu, [uint32]4, 0x0400)
+        Check (([uint32]$leftState -band 0x03) -ne 0) "第一个标签：关闭左侧标签已禁用"
+        Check (([uint32]$rightState -band 0x03) -eq 0) "第一个标签：关闭右侧标签可用"
+
+        Close-TabContextMenu $proc $menu
+        Start-Sleep -Milliseconds 300
+        Check ((Get-TooltipToolCount $proc) -eq $toolCount) "取消右键菜单不会关闭标签"
+    } else {
+        Check $false "右键菜单未弹出"
+    }
 }
 catch {
     # 未预期异常（找不到窗口、控件通讯失败等）也计入失败，
