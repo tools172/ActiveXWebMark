@@ -45,7 +45,7 @@ powershell -ExecutionPolicy Bypass -File tests/manual/tabstrip-smoke.ps1
 
 检查预览查找栏（`AwmFindBar`）：
 
-- Ctrl+F 打开查找栏，输入后实时高亮匹配并在预览中滚动到当前项
+- Ctrl+F 打开/关闭查找栏，输入后实时高亮匹配并在预览中滚动到当前项
 - 区分大小写、全词匹配、正则表达式三个选项
 - 查找下一个 / F3（含末尾回绕）与非法正则的错误处理
 - Esc 关闭查找栏并清除高亮

@@ -1377,7 +1377,10 @@ LRESULT MainWindow::OnRecentMore(WORD, WORD, HWND, BOOL&)
 LRESULT MainWindow::OnEditFind(WORD, WORD, HWND, BOOL&)
 {
     if (DocumentView* view = ActiveView()) {
-        view->ShowFindBar();
+        // Ctrl+F / the Edit menu toggles the find bar.
+        if (!view->CloseFindBarIfVisible()) {
+            view->ShowFindBar();
+        }
     }
     return 0;
 }

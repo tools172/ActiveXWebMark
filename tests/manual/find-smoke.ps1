@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     Launches the built application with a generated Markdown document and checks:
-      * Ctrl+F opens the find bar and focusing/searching works;
+      * Ctrl+F toggles the find bar and focusing/searching works;
       * incremental search, match-case, whole-word and regex options;
       * next / previous navigation, wrapping and the F3 accelerator;
       * invalid regular expressions report an error instead of throwing;
@@ -271,6 +271,14 @@ try {
         throw "找不到查找输入框"
     }
     Check ((Get-FindState $view 0) -eq 1) "Ctrl+F 打开查找栏"
+
+    # 再次 Ctrl+F 关闭，第三次重新打开后继续后续测试。
+    [void][AwmFindSmoke]::SendMessageW($main, 0x0111, [IntPtr]1020, [IntPtr]::Zero) # kEditFind
+    Start-Sleep -Milliseconds 300
+    Check ((Get-FindState $view 0) -eq 0) "再次 Ctrl+F 关闭查找栏"
+    [void][AwmFindSmoke]::SendMessageW($main, 0x0111, [IntPtr]1020, [IntPtr]::Zero) # kEditFind
+    Start-Sleep -Milliseconds 300
+    Check ((Get-FindState $view 0) -eq 1) "Ctrl+F 重新打开查找栏"
 
     # 5.0 Backspace 回归测试：主窗口转发加速键时必须按焦点过滤，否则
     #     IE 预览会吞掉查找框的 VK_BACK（表现为无法删除字符）。
