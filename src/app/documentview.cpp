@@ -358,11 +358,16 @@ void DocumentView::Layout()
             ui::splitArea(nav.content, settings_.split, firstSize, divider, theme()->px(120),
                           theme()->px(120));
 
+        // Side by side: the editor sits on the left and the preview in the
+        // middle (the nav stays on the right), so sideBySideRatio sizes the
+        // editor. Stacked keeps the preview above the editor, so stackedRatio
+        // sizes the preview.
+        const bool editorFirst = settings_.split == ui::Orientation::Horizontal;
         if (preview_ != nullptr) {
-            RECT previewRect = toRect(split.first);
+            RECT previewRect = toRect(editorFirst ? split.second : split.first);
             preview_->SetBounds(previewRect);
         }
-        RECT editorRect = toRect(split.second);
+        RECT editorRect = toRect(editorFirst ? split.first : split.second);
         editor_->SetBounds(editorRect);
         editor_->Show(true);
 
