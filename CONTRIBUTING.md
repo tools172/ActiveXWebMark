@@ -43,7 +43,8 @@ git push -u origin feature/xxx
    git push origin v0.1.0
    ```
 
-3. GitHub Actions 自动构建并生成 WiX MSI 与 NSIS Setup，附到对应 Release。
+3. GitHub Actions 自动构建并生成 WiX MSI 与 NSIS Setup，同时按提交记录生成
+   变更说明（changelog），一并附到对应 Release。
 
 ## 提交规范
 
@@ -58,6 +59,22 @@ git push -u origin feature/xxx
 | test | 测试 |
 | build | 构建/依赖（CMake、vcpkg） |
 | ci | CI/CD（GitHub Actions） |
+
+## 变更记录（Changelog）
+
+Release 页面上的变更说明由 [git-cliff](https://git-cliff.org/) 根据 Conventional
+Commits 自动生成，范围是上一个标签到本次标签之间的提交，配置见 `cliff.toml`。
+
+- 只有 `feat`（新功能）、`fix`（修复）、`perf`（性能）、`revert`（回滚）会出现在
+  变更记录中；`test`、`docs`、`ci`、`build`、`style`、`refactor`、`chore` 会被自动过滤。
+- 用户可见的行为变化必须使用 `feat` 或 `fix`，否则不会进入更新说明。
+- 破坏性变更使用 `feat!:` / `fix!:` 或在提交正文写 `BREAKING CHANGE:`，会单独标记。
+
+本地预览变更记录（需先安装 git-cliff）：
+
+```bash
+git-cliff --unreleased --strip header
+```
 
 ## 分支保护（仓库管理员在 GitHub 设置）
 
