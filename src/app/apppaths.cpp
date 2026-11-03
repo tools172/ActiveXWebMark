@@ -27,6 +27,15 @@ std::filesystem::path executableDirectory()
 
 std::filesystem::path settingsFilePath()
 {
+    // Test/portable override used by tests/manual/tabstrip-smoke.ps1. It keeps
+    // UI smoke tests from touching the user's real settings file.
+    wchar_t overrideDir[1024] = {};
+    const DWORD overrideLength =
+        ::GetEnvironmentVariableW(L"AWM_SETTINGS_DIR", overrideDir, 1024);
+    if (overrideLength > 0 && overrideLength < 1024) {
+        return std::filesystem::path(overrideDir) / L"settings.json";
+    }
+
     PWSTR localAppData = nullptr;
     if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr,
                                          &localAppData)) &&

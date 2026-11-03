@@ -22,6 +22,11 @@ RECT toRect(const RectI& rect)
     return RECT{rect.x, rect.y, rect.x + rect.w, rect.y + rect.h};
 }
 
+RectI toRectI(const RECT& rect)
+{
+    return RectI{rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top};
+}
+
 void fillRoundedTop(Gdiplus::Graphics& graphics, const RECT& rc, float radius,
                     const Color& color)
 {
@@ -207,42 +212,6 @@ void drawEdgeFade(Gdiplus::Graphics& graphics, const RECT& rc, bool opaqueAtLeft
                                static_cast<float>(rc.bottom - rc.top)));
 }
 
-int tabsTotalWidth(const std::vector<int>& widths, int gap)
-{
-    int total = 0;
-    for (std::size_t i = 0; i < widths.size(); ++i) {
-        total += widths[i];
-        if (i + 1 < widths.size()) {
-            total += gap;
-        }
-    }
-    return total;
-}
-
-// Smallest first-visible index whose remaining tabs still fit the available
-// width. Scrolling past it would leave a large blank tail in the strip.
-int tailStartIndex(const std::vector<int>& widths, int available, int gap, int padding)
-{
-    if (widths.empty()) {
-        return 0;
-    }
-
-    const int usable = available - padding * 2;
-    int total = 0;
-    int start = static_cast<int>(widths.size()) - 1;
-    for (int i = static_cast<int>(widths.size()) - 1; i >= 0; --i) {
-        total += widths[static_cast<std::size_t>(i)];
-        if (i + 1 < static_cast<int>(widths.size())) {
-            total += gap;
-        }
-        if (total > usable) {
-            break;
-        }
-        start = i;
-    }
-    return start;
-}
-
 void fillSolid(HDC dc, const RECT& rc, COLORREF color)
 {
     HBRUSH brush = ::CreateSolidBrush(color);
@@ -373,7 +342,7 @@ void TabStrip::relayout()
     // Overflow: reserve both arrow slots so tab positions stay stable at the
     // ends, and never scroll past the point where the tail tab is flush.
     const int available = std::max(0, areaRight - arrow * 2);
-    maxFirstVisible_ = tailStartIndex(widths_, available, gap, padding);
+    maxFirstVisible_ = tabStripTailStart(widths_, available, gap, padding);
     firstVisible_ = std::clamp(firstVisible_, 0, maxFirstVisible_);
     const RectI area{arrow, top, available, height};
     layout_ = layoutTabs(area, widths_, gap, padding, theme_->px(18), firstVisible_);
@@ -405,7 +374,7 @@ void TabStrip::ensureActiveVisible()
     }
 
     const int available = std::max(0, areaRight - arrow * 2);
-    const int maxStart = tailStartIndex(widths_, available, gap, padding);
+    const int maxStart = tabStripTailStart(widths_, available, gap, padding);
     firstVisible_ =
         scrollToShow(activeIndex_, firstVisible_, available, widths_, gap, padding);
     firstVisible_ = std::clamp(firstVisible_, 0, maxStart);
@@ -484,25 +453,21 @@ RECT TabStrip::navButtonRect() const
 {
     RECT client = {};
     GetClientRect(&client);
-    const int size = navButtonSize();
-    const int margin = theme_ != nullptr ? theme_->px(8) : 8;
-    const int right = static_cast<int>(client.right) - margin;
-    const int left = right - size;
-    const int top = std::max(0, (static_cast<int>(client.bottom) - 1 - size) / 2);
-    return RECT{left, top, left + size, top + size};
+    const RectI rect = tabStripNavButtonRect(
+        toRectI(client), navButtonSize(), theme_ != nullptr ? theme_->px(8) : 8);
+    return toRect(rect);
 }
 
 int TabStrip::tabAreaRight() const
 {
     const RECT button = navButtonRect();
     const int gap = theme_ != nullptr ? theme_->px(8) : 8;
-    return std::max(0, static_cast<int>(button.left) - gap);
+    return tabStripAreaRight(static_cast<int>(button.left), gap);
 }
 
 bool TabStrip::hitNavButton(POINT client) const
 {
-    const RECT rect = navButtonRect();
-    return ::PtInRect(&rect, client) != FALSE;
+    return rectContains(toRectI(navButtonRect()), client.x, client.y);
 }
 
 int TabStrip::arrowSize() const
@@ -516,7 +481,7 @@ RECT TabStrip::leftArrowRect() const
     GetClientRect(&client);
     const int top = theme_ != nullptr ? theme_->px(7) : 7;
     const int bottom = std::max(top, static_cast<int>(client.bottom) - 1);
-    return RECT{0, top, arrowSize(), bottom};
+    return toRect(tabStripLeftArrowRect(top, bottom, arrowSize()));
 }
 
 RECT TabStrip::rightArrowRect() const
@@ -526,7 +491,7 @@ RECT TabStrip::rightArrowRect() const
     RECT client = {};
     GetClientRect(&client);
     const int bottom = std::max(top, static_cast<int>(client.bottom) - 1);
-    return RECT{std::max(0, right - arrowSize()), top, right, bottom};
+    return toRect(tabStripRightArrowRect(right, top, bottom, arrowSize()));
 }
 
 bool TabStrip::hitLeftArrow(POINT client) const
@@ -534,8 +499,7 @@ bool TabStrip::hitLeftArrow(POINT client) const
     if (!overflowLeft_) {
         return false;
     }
-    const RECT rect = leftArrowRect();
-    return ::PtInRect(&rect, client) != FALSE;
+    return rectContains(toRectI(leftArrowRect()), client.x, client.y);
 }
 
 bool TabStrip::hitRightArrow(POINT client) const
@@ -543,8 +507,7 @@ bool TabStrip::hitRightArrow(POINT client) const
     if (!overflowRight_) {
         return false;
     }
-    const RECT rect = rightArrowRect();
-    return ::PtInRect(&rect, client) != FALSE;
+    return rectContains(toRectI(rightArrowRect()), client.x, client.y);
 }
 
 void TabStrip::scrollTabsBy(int delta)
@@ -552,7 +515,7 @@ void TabStrip::scrollTabsBy(int delta)
     if (maxFirstVisible_ <= 0) {
         return;
     }
-    const int next = std::clamp(firstVisible_ + delta, 0, maxFirstVisible_);
+    const int next = tabStripScrollTarget(firstVisible_, delta, maxFirstVisible_);
     if (next == firstVisible_) {
         return;
     }
@@ -890,6 +853,20 @@ LRESULT TabStrip::OnMouseWheel(UINT, WPARAM wParam, LPARAM, BOOL&)
         Invalidate(FALSE);
     }
     return 0;
+}
+
+LRESULT TabStrip::OnTestState(UINT, WPARAM wParam, LPARAM, BOOL&)
+{
+    switch (wParam) {
+    case 0:
+        return (overflowLeft_ ? 1 : 0) | (overflowRight_ ? 2 : 0) | (navVisible_ ? 4 : 0);
+    case 1:
+        return firstVisible_;
+    case 2:
+        return maxFirstVisible_;
+    default:
+        return 0;
+    }
 }
 
 LRESULT TabStrip::OnSetCursor(UINT, WPARAM, LPARAM lParam, BOOL& handled)

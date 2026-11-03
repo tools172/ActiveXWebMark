@@ -85,4 +85,27 @@ int clampTabScroll(int firstVisible, const std::vector<int>& widths);
 int scrollToShow(int active, int firstVisible, int availableWidth,
                  const std::vector<int>& widths, int gap, int padding);
 
+/// Total width of all tabs plus the gaps between adjacent tabs.
+int tabsTotalWidth(const std::vector<int>& widths, int gap);
+
+/// Smallest first-visible index whose remaining tabs still fit in `available`
+/// width (including `padding` on both sides).
+int tabStripTailStart(const std::vector<int>& widths, int available, int gap, int padding);
+
+/// Applies a one-step scroll delta, clamped to [0, maxFirstVisible].
+int tabStripScrollTarget(int firstVisible, int delta, int maxFirstVisible);
+
+/// Rectangle of the sidebar toggle at the right end of a tab strip.
+RectI tabStripNavButtonRect(const RectI& client, int buttonSize, int margin);
+
+/// Right edge of the tab area, left of the sidebar toggle by `gap`.
+int tabStripAreaRight(int navButtonLeft, int gap);
+
+/// Scroll-arrow rectangles at the left and right ends of the tab area.
+RectI tabStripLeftArrowRect(int top, int bottom, int arrowWidth);
+RectI tabStripRightArrowRect(int tabAreaRight, int top, int bottom, int arrowWidth);
+
+/// Hit test with inclusive left/top and exclusive right/bottom edges.
+bool rectContains(const RectI& rect, int x, int y);
+
 } // namespace awm::ui

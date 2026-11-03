@@ -140,3 +140,69 @@ TEST(Geometry, ScrollToShowActiveTab)
     EXPECT_EQ(scrollToShow(2, 0, 500, {200, 200, 200}, 4, 8), 1);
     EXPECT_EQ(scrollToShow(0, 2, 500, {100, 100, 100}, 4, 8), 0);
 }
+
+TEST(Geometry, TabsTotalWidth)
+{
+    EXPECT_EQ(tabsTotalWidth({}, 4), 0);
+    EXPECT_EQ(tabsTotalWidth({100}, 4), 100);
+    EXPECT_EQ(tabsTotalWidth({100, 120, 80}, 4), 308);
+    EXPECT_EQ(tabsTotalWidth({-10, 50}, 4), 54);
+}
+
+TEST(Geometry, TabStripTailStart)
+{
+    const std::vector<int> widths{100, 100, 100, 100, 100, 100};
+    EXPECT_EQ(tabStripTailStart(widths, 500, 4, 8), 2);
+    EXPECT_EQ(tabStripTailStart(widths, 300, 4, 8), 4);
+    EXPECT_EQ(tabStripTailStart({300}, 100, 4, 8), 0);
+    EXPECT_EQ(tabStripTailStart({}, 500, 4, 8), 0);
+}
+
+TEST(Geometry, TabStripScrollTarget)
+{
+    EXPECT_EQ(tabStripScrollTarget(0, 1, 3), 1);
+    EXPECT_EQ(tabStripScrollTarget(3, 1, 3), 3);
+    EXPECT_EQ(tabStripScrollTarget(0, -1, 3), 0);
+    EXPECT_EQ(tabStripScrollTarget(2, 1, 0), 0);
+    EXPECT_EQ(tabStripScrollTarget(2, -5, 4), 0);
+}
+
+TEST(Geometry, TabStripButtonRects)
+{
+    const RectI client{0, 0, 800, 38};
+    const RectI nav = tabStripNavButtonRect(client, 24, 8);
+    EXPECT_EQ(nav.x, 768);
+    EXPECT_EQ(nav.y, 6);
+    EXPECT_EQ(nav.w, 24);
+    EXPECT_EQ(nav.h, 24);
+
+    const RectI offset = tabStripNavButtonRect(RectI{10, 20, 800, 38}, 24, 8);
+    EXPECT_EQ(offset.x, 778);
+    EXPECT_EQ(offset.y, 26);
+
+    EXPECT_EQ(tabStripAreaRight(nav.left(), 8), 760);
+
+    const RectI left = tabStripLeftArrowRect(7, 37, 22);
+    EXPECT_EQ(left.left(), 0);
+    EXPECT_EQ(left.top(), 7);
+    EXPECT_EQ(left.w, 22);
+    EXPECT_EQ(left.h, 30);
+
+    const RectI right = tabStripRightArrowRect(760, 7, 37, 22);
+    EXPECT_EQ(right.left(), 738);
+    EXPECT_EQ(right.top(), 7);
+    EXPECT_EQ(right.w, 22);
+    EXPECT_EQ(right.h, 30);
+}
+
+TEST(Geometry, RectContainsUsesExclusiveRightBottom)
+{
+    const RectI rect{10, 20, 30, 40};
+    EXPECT_TRUE(rectContains(rect, 10, 20));
+    EXPECT_TRUE(rectContains(rect, 39, 59));
+    EXPECT_FALSE(rectContains(rect, 9, 20));
+    EXPECT_FALSE(rectContains(rect, 10, 19));
+    EXPECT_FALSE(rectContains(rect, 40, 20));
+    EXPECT_FALSE(rectContains(rect, 10, 60));
+    EXPECT_FALSE(rectContains(RectI{}, 10, 20));
+}

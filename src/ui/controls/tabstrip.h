@@ -43,6 +43,11 @@ public:
     void SetNavVisible(bool visible);
     void OnDpiChanged();
 
+    /// Diagnostic hook used by tests/manual/tabstrip-smoke.ps1.
+    /// wParam 0: bit0 overflowLeft, bit1 overflowRight, bit2 navVisible.
+    /// wParam 1: firstVisible index. wParam 2: maxFirstVisible index.
+    static constexpr UINT kTestStateMessage = WM_APP + 0x51;
+
     BEGIN_MSG_MAP(TabStrip)
         MESSAGE_HANDLER(WM_PAINT, OnPaint)
         MESSAGE_HANDLER(WM_ERASEBKGND, OnEraseBkgnd)
@@ -54,6 +59,7 @@ public:
         MESSAGE_HANDLER(WM_MOUSELEAVE, OnMouseLeave)
         MESSAGE_HANDLER(WM_MOUSEWHEEL, OnMouseWheel)
         MESSAGE_HANDLER(WM_SETCURSOR, OnSetCursor)
+        MESSAGE_HANDLER(kTestStateMessage, OnTestState)
     END_MSG_MAP()
 
 private:
@@ -67,6 +73,7 @@ private:
     LRESULT OnMouseLeave(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnMouseWheel(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnSetCursor(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnTestState(UINT, WPARAM, LPARAM, BOOL&);
 
     void relayout();
     void ensureActiveVisible();

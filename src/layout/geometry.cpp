@@ -184,4 +184,76 @@ int scrollToShow(int active, int firstVisible, int availableWidth,
     return visible;
 }
 
+int tabsTotalWidth(const std::vector<int>& widths, int gap)
+{
+    int total = 0;
+    for (std::size_t i = 0; i < widths.size(); ++i) {
+        total += std::max(0, widths[i]);
+        if (i + 1 < widths.size()) {
+            total += std::max(0, gap);
+        }
+    }
+    return total;
+}
+
+int tabStripTailStart(const std::vector<int>& widths, int available, int gap, int padding)
+{
+    if (widths.empty()) {
+        return 0;
+    }
+
+    const int usable = std::max(0, available - std::max(0, padding) * 2);
+    int total = 0;
+    int start = static_cast<int>(widths.size()) - 1;
+    for (int i = static_cast<int>(widths.size()) - 1; i >= 0; --i) {
+        total += std::max(0, widths[static_cast<std::size_t>(i)]);
+        if (i + 1 < static_cast<int>(widths.size())) {
+            total += std::max(0, gap);
+        }
+        if (total > usable) {
+            break;
+        }
+        start = i;
+    }
+    return start;
+}
+
+int tabStripScrollTarget(int firstVisible, int delta, int maxFirstVisible)
+{
+    return clampValue(firstVisible + delta, 0, maxFirstVisible);
+}
+
+RectI tabStripNavButtonRect(const RectI& client, int buttonSize, int margin)
+{
+    const int size = std::max(0, buttonSize);
+    const int right = client.right() - std::max(0, margin);
+    const int left = right - size;
+    const int top = client.y + std::max(0, (client.h - 1 - size) / 2);
+    return RectI{left, top, size, size};
+}
+
+int tabStripAreaRight(int navButtonLeft, int gap)
+{
+    return std::max(0, navButtonLeft - std::max(0, gap));
+}
+
+RectI tabStripLeftArrowRect(int top, int bottom, int arrowWidth)
+{
+    const int width = std::max(0, arrowWidth);
+    return RectI{0, top, width, std::max(0, bottom - top)};
+}
+
+RectI tabStripRightArrowRect(int tabAreaRight, int top, int bottom, int arrowWidth)
+{
+    const int width = std::max(0, arrowWidth);
+    return RectI{std::max(0, tabAreaRight - width), top, width,
+                 std::max(0, bottom - top)};
+}
+
+bool rectContains(const RectI& rect, int x, int y)
+{
+    return !rect.empty() && x >= rect.left() && x < rect.right() && y >= rect.top() &&
+           y < rect.bottom();
+}
+
 } // namespace awm::ui
