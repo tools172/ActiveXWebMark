@@ -5,6 +5,8 @@ extern "C" {
 #include <pmh_parser.h>
 }
 
+#include <algorithm>
+#include <cstdint>
 #include <vector>
 
 namespace awm {
@@ -56,28 +58,6 @@ MarkupStyle toMarkupStyle(pmh_element_type type)
     }
 }
 
-// PMH reports offsets in Unicode code points; Scintilla (and our StyleSpan
-// contract) uses UTF-8 byte offsets. Convert between the two.
-std::size_t codePointToByteOffset(const std::string& text, std::size_t codePointOffset)
-{
-    std::size_t byteOffset = 0;
-    for (std::size_t cp = 0; cp < codePointOffset && byteOffset < text.size(); ++cp) {
-        const unsigned char c = static_cast<unsigned char>(text[byteOffset]);
-        if (c < 0x80) {
-            byteOffset += 1;
-        } else if ((c & 0xE0) == 0xC0) {
-            byteOffset += 2;
-        } else if ((c & 0xF0) == 0xE0) {
-            byteOffset += 3;
-        } else if ((c & 0xF8) == 0xF0) {
-            byteOffset += 4;
-        } else {
-            byteOffset += 1; // invalid byte; treat as a single code unit
-        }
-    }
-    return byteOffset;
-}
-
 } // namespace
 
 std::vector<StyleSpan> PmhSyntaxHighlighter::highlight(const std::string& markdown)
@@ -91,6 +71,42 @@ std::vector<StyleSpan> PmhSyntaxHighlighter::highlight(const std::string& markdo
     pmh_element** elements = nullptr;
     pmh_markdown_to_elements(buffer.data(), pmh_EXT_NONE, &elements);
 
+    // PMH reports offsets in Unicode code points; Scintilla and StyleSpan use
+    // UTF-8 byte offsets. Build the mapping once: converting each element by
+    // rescanning from the start is O(elements * document) and hangs on large
+    // files with many emphasis/link elements.
+    const bool ascii = std::all_of(markdown.begin(), markdown.end(), [](char ch) {
+        return static_cast<unsigned char>(ch) < 0x80;
+    });
+    std::vector<std::uint32_t> byteOffsets;
+    if (!ascii) {
+        byteOffsets.reserve(markdown.size() + 1);
+        std::size_t offset = 0;
+        while (offset < markdown.size()) {
+            byteOffsets.push_back(static_cast<std::uint32_t>(offset));
+            const unsigned char c = static_cast<unsigned char>(markdown[offset]);
+            std::size_t step = 1;
+            if ((c & 0xE0) == 0xC0) {
+                step = 2;
+            } else if ((c & 0xF0) == 0xE0) {
+                step = 3;
+            } else if ((c & 0xF8) == 0xF0) {
+                step = 4;
+            }
+            offset = std::min(markdown.size(), offset + step);
+        }
+        byteOffsets.push_back(static_cast<std::uint32_t>(markdown.size()));
+    }
+
+    const auto toByteOffset = [&](unsigned long codePointOffset) -> std::size_t {
+        if (ascii) {
+            return static_cast<std::size_t>(codePointOffset);
+        }
+        const std::size_t cp = static_cast<std::size_t>(codePointOffset);
+        return cp < byteOffsets.size() ? static_cast<std::size_t>(byteOffsets[cp])
+                                       : markdown.size();
+    };
+
     for (int i = 0; i < pmh_NUM_LANG_TYPES; ++i) {
         const MarkupStyle style = toMarkupStyle(static_cast<pmh_element_type>(i));
         if (style == MarkupStyle::Normal) {
@@ -98,8 +114,8 @@ std::vector<StyleSpan> PmhSyntaxHighlighter::highlight(const std::string& markdo
         }
 
         for (const pmh_element* e = elements[i]; e != nullptr; e = e->next) {
-            const std::size_t begin = codePointToByteOffset(markdown, e->pos);
-            const std::size_t end = codePointToByteOffset(markdown, e->end);
+            const std::size_t begin = toByteOffset(e->pos);
+            const std::size_t end = toByteOffset(e->end);
             if (end <= begin) {
                 continue;
             }
