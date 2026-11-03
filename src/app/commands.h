@@ -24,6 +24,5 @@ constexpr int kHelpAbout = 1100;
 constexpr int kRecentBase = 3000;
 constexpr int kRecentCount = 20;
 constexpr int kRecentMore = 3021;
-constexpr int kRecentClear = 3022;
 
 } // namespace awm::cmd

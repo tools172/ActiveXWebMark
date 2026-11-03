@@ -324,8 +324,6 @@ void MainWindow::RebuildRecentMenu()
             ::AppendMenuW(recentMenu_, MF_SEPARATOR, 0, nullptr);
             ::AppendMenuW(recentMenu_, MF_STRING, cmd::kRecentMore, L"更多(&M)...");
         }
-        ::AppendMenuW(recentMenu_, MF_SEPARATOR, 0, nullptr);
-        ::AppendMenuW(recentMenu_, MF_STRING, cmd::kRecentClear, L"清除最近记录(&C)");
     }
 
     if (::IsWindow(m_hWnd)) {
@@ -1224,16 +1222,6 @@ LRESULT MainWindow::OnRecentMore(WORD, WORD, HWND, BOOL&)
     if (!selected.empty()) {
         OpenFile(selected);
     }
-    return 0;
-}
-
-LRESULT MainWindow::OnRecentClear(WORD, WORD, HWND, BOOL&)
-{
-    recent_.clear();
-    if (settings_ != nullptr) {
-        recent_.save(*settings_, "history.recentFiles");
-    }
-    RebuildRecentMenu();
     return 0;
 }
 

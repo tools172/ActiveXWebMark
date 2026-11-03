@@ -63,7 +63,6 @@ public:
         COMMAND_ID_HANDLER(cmd::kViewToggleSplit, OnViewToggleSplit)
         COMMAND_ID_HANDLER(cmd::kViewScrollSync, OnViewScrollSync)
         COMMAND_ID_HANDLER(cmd::kRecentMore, OnRecentMore)
-        COMMAND_ID_HANDLER(cmd::kRecentClear, OnRecentClear)
         COMMAND_ID_HANDLER(cmd::kHelpAbout, OnHelpAbout)
         COMMAND_RANGE_HANDLER(cmd::kRecentBase, cmd::kRecentBase + cmd::kRecentCount - 1,
                               OnRecentFile)
@@ -93,7 +92,6 @@ private:
     LRESULT OnViewScrollSync(WORD, WORD, HWND, BOOL&);
     LRESULT OnRecentFile(WORD, WORD, HWND, BOOL&);
     LRESULT OnRecentMore(WORD, WORD, HWND, BOOL&);
-    LRESULT OnRecentClear(WORD, WORD, HWND, BOOL&);
     LRESULT OnHelpAbout(WORD, WORD, HWND, BOOL&);
 
     DocumentView* ActiveView() const;
