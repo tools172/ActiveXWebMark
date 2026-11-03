@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <cwchar>
 #include <filesystem>
 #include <utility>
 
@@ -15,6 +16,7 @@
 #include "recentfilesdialog.h"
 #include "resource.h"
 #include "scintillaeditor.h"
+#include "update/updatedialog.h"
 #include "util/pathutil.h"
 #include "util/stringutil.h"
 #include "version.h"
@@ -92,6 +94,61 @@ void revealInExplorer(HWND owner, const std::wstring& path)
     }
 }
 
+bool updateChecksDisabled()
+{
+    wchar_t value[16] = {};
+    const DWORD length =
+        ::GetEnvironmentVariableW(L"AWM_DISABLE_UPDATE_CHECK", value, ARRAYSIZE(value));
+    return length > 0 && ::_wcsicmp(value, L"0") != 0;
+}
+
+bool endsWithNoCase(const std::wstring& text, const wchar_t* suffix)
+{
+    const std::size_t length = std::wcslen(suffix);
+    return text.size() >= length &&
+           ::_wcsicmp(text.c_str() + text.size() - length, suffix) == 0;
+}
+
+/// Builds a safe local file name for a release asset.
+std::wstring installerFileName(const ReleaseAsset& asset, const ReleaseInfo& release)
+{
+    std::wstring name = utf8ToWide(asset.name);
+    const std::size_t slash = name.find_last_of(L"\\/");
+    if (slash != std::wstring::npos) {
+        name = name.substr(slash + 1);
+    }
+
+    std::wstring safe;
+    safe.reserve(name.size());
+    for (const wchar_t ch : name) {
+        const bool allowed = (ch >= L'0' && ch <= L'9') || (ch >= L'A' && ch <= L'Z') ||
+                             (ch >= L'a' && ch <= L'z') || ch == L'.' || ch == L'-' ||
+                             ch == L'_';
+        safe.push_back(allowed ? ch : L'_');
+    }
+
+    if (safe.empty() || safe == L"." || safe == L"..") {
+        safe = L"ActiveXWebMark-" + utf8ToWide(release.version) + L"-update";
+    }
+    if (!endsWithNoCase(safe, L".exe") && !endsWithNoCase(safe, L".msi")) {
+        safe += endsWithNoCase(utf8ToWide(asset.downloadUrl), L".msi") ? L".msi" : L".exe";
+    }
+    return safe;
+}
+
+bool openReleasePage(const ReleaseInfo& release)
+{
+    const std::wstring url = utf8ToWide(release.releaseUrl);
+    constexpr const wchar_t* kPrefix = L"https://github.com/";
+    if (url.size() < std::wcslen(kPrefix) ||
+        ::_wcsnicmp(url.c_str(), kPrefix, std::wcslen(kPrefix)) != 0) {
+        return false;
+    }
+    const INT_PTR result = reinterpret_cast<INT_PTR>(
+        ::ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+    return result > 32;
+}
+
 } // namespace
 
 MainWindow::MainWindow() : registry_(DocumentFormatRegistry::createDefault())
@@ -102,24 +159,39 @@ MainWindow::MainWindow() : registry_(DocumentFormatRegistry::createDefault())
         recent_.load(*settings_, "history.recentFiles");
         viewSettings_ = LoadViewSettings(*settings_);
         placement_ = LoadWindowPlacement(*settings_);
+        ignoredVersion_ = settings_->get("update.ignoredVersion");
     }
     startMaximized_ = placement_.valid && placement_.maximized;
 }
 
 MainWindow::~MainWindow()
 {
+    if (updateDialog_) {
+        updateDialog_->CloseSilently();
+    }
+    updates_.Shutdown();
+
     if (mainMenu_ != nullptr) {
         ::DestroyMenu(mainMenu_);
         mainMenu_ = nullptr;
         fileMenu_ = nullptr;
         editMenu_ = nullptr;
         viewMenu_ = nullptr;
+        helpMenu_ = nullptr;
         recentMenu_ = nullptr;
     }
 }
 
 BOOL MainWindow::PreTranslateMessage(MSG* pMsg)
 {
+    // Tab/Enter/Esc navigation inside the floating update window, and keep the
+    // application's global shortcuts from acting while it has focus.
+    if (updateDialog_ && updateDialog_->IsWindow() && pMsg->hwnd != nullptr &&
+        (pMsg->hwnd == updateDialog_->m_hWnd ||
+         ::IsChild(updateDialog_->m_hWnd, pMsg->hwnd))) {
+        return ::IsDialogMessageW(updateDialog_->m_hWnd, pMsg) ? TRUE : FALSE;
+    }
+
     if (pMsg->message == WM_KEYDOWN && pMsg->wParam == VK_F1) {
         SendCommand(cmd::kHelpAbout);
         return TRUE;
@@ -275,6 +347,10 @@ LRESULT MainWindow::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
     UpdateMenuState();
     Layout();
     RestoreSession();
+
+    if (!updateChecksDisabled()) {
+        ::SetTimer(m_hWnd, kStartupUpdateTimer, kStartupUpdateDelayMs, nullptr);
+    }
     return 0;
 }
 
@@ -288,6 +364,7 @@ void MainWindow::CreateMenuBar()
     fileMenu_ = ::CreatePopupMenu();
     editMenu_ = ::CreatePopupMenu();
     viewMenu_ = ::CreatePopupMenu();
+    helpMenu_ = ::CreatePopupMenu();
     recentMenu_ = ::CreatePopupMenu();
 
     ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileOpen, L"打开(&O)...\tCtrl+O");
@@ -315,13 +392,14 @@ void MainWindow::CreateMenuBar()
     ::AppendMenuW(viewMenu_, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(viewMenu_, MF_STRING, cmd::kViewScrollSync, L"滚动同步(&Y)");
 
-    HMENU helpMenu = ::CreatePopupMenu();
-    ::AppendMenuW(helpMenu, MF_STRING, cmd::kHelpAbout, L"关于 ActiveXWebMark(&A)...\tF1");
+    ::AppendMenuW(helpMenu_, MF_STRING, cmd::kHelpCheckUpdates, L"检查更新(&U)...");
+    ::AppendMenuW(helpMenu_, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(helpMenu_, MF_STRING, cmd::kHelpAbout, L"关于 ActiveXWebMark(&A)...\tF1");
 
     ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(fileMenu_), L"文件(&F)");
     ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(editMenu_), L"编辑(&E)");
     ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(viewMenu_), L"视图(&V)");
-    ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(helpMenu), L"帮助(&H)");
+    ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(helpMenu_), L"帮助(&H)");
     ::SetMenu(m_hWnd, mainMenu_);
 }
 
@@ -386,6 +464,10 @@ void MainWindow::UpdateMenuState()
         ::EnableMenuItem(editMenu_, cmd::kEditFind, MF_BYCOMMAND | enabled);
         ::EnableMenuItem(editMenu_, cmd::kEditFindNext, MF_BYCOMMAND | enabled);
         ::EnableMenuItem(editMenu_, cmd::kEditFindPrevious, MF_BYCOMMAND | enabled);
+    }
+    if (helpMenu_ != nullptr) {
+        ::EnableMenuItem(helpMenu_, cmd::kHelpCheckUpdates,
+                         MF_BYCOMMAND | (updateBusy() ? MF_GRAYED : MF_ENABLED));
     }
 }
 
@@ -990,6 +1072,15 @@ void MainWindow::SaveSettings()
 
 LRESULT MainWindow::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
 {
+    ::KillTimer(m_hWnd, kStartupUpdateTimer);
+    ::KillTimer(m_hWnd, kUpdatePollTimer);
+    updates_.RequestCancel();
+    if (updateDialog_) {
+        updateDialog_->CloseSilently();
+    }
+    checking_ = false;
+    downloadActive_ = false;
+
     // OnClose normally saves first; this covers shutdown paths that bypass it.
     if (!sessionSaved_) {
         SaveSession();
@@ -1005,6 +1096,7 @@ LRESULT MainWindow::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
         fileMenu_ = nullptr;
         editMenu_ = nullptr;
         viewMenu_ = nullptr;
+        helpMenu_ = nullptr;
         recentMenu_ = nullptr;
     }
 
@@ -1133,6 +1225,33 @@ LRESULT MainWindow::OnDpiChanged(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
 LRESULT MainWindow::OnInitMenuPopup(UINT, WPARAM, LPARAM, BOOL&)
 {
     UpdateMenuState();
+    return 0;
+}
+
+LRESULT MainWindow::OnTimer(UINT, WPARAM wParam, LPARAM, BOOL&)
+{
+    const UINT_PTR timerId = wParam;
+    if (timerId == kStartupUpdateTimer) {
+        ::KillTimer(m_hWnd, kStartupUpdateTimer);
+        if (updateChecksDisabled()) {
+            return 0;
+        }
+
+        // Do not interrupt a modal dialog that is already open.
+        const HWND popup = ::GetLastActivePopup(m_hWnd);
+        if (popup != nullptr && popup != m_hWnd) {
+            ::SetTimer(m_hWnd, kStartupUpdateTimer, 3000, nullptr);
+            return 0;
+        }
+
+        StartUpdateCheck(false);
+        return 0;
+    }
+
+    if (timerId == kUpdatePollTimer) {
+        PollUpdate();
+        return 0;
+    }
     return 0;
 }
 
@@ -1277,6 +1396,368 @@ LRESULT MainWindow::OnEditFindPrevious(WORD, WORD, HWND, BOOL&)
         view->FindPrevious();
     }
     return 0;
+}
+
+LRESULT MainWindow::OnHelpCheckUpdates(WORD, WORD, HWND, BOOL&)
+{
+    if (updateBusy()) {
+        if (updateDialog_ && updateDialog_->IsOpen()) {
+            ::SetForegroundWindow(updateDialog_->m_hWnd);
+        }
+        return 0;
+    }
+
+    if (updateDialog_ && updateDialog_->IsOpen()) {
+        updateDialog_->CloseSilently();
+    }
+    StartUpdateCheck(true);
+    return 0;
+}
+
+bool MainWindow::updateBusy() const
+{
+    return checking_ || downloadActive_ || updates_.IsBusy();
+}
+
+void MainWindow::EnsureUpdatePolling()
+{
+    ::SetTimer(m_hWnd, kUpdatePollTimer, kUpdatePollIntervalMs, nullptr);
+}
+
+void MainWindow::StopUpdatePolling()
+{
+    ::KillTimer(m_hWnd, kUpdatePollTimer);
+}
+
+bool MainWindow::EnsureUpdateDialog()
+{
+    if (!updateDialog_) {
+        updateDialog_ = std::make_unique<UpdateDialog>();
+        updateDialog_->SetCallbacks(UpdateDialog::Callbacks{
+            [this]() { DismissUpdateDialog(); },
+            [this]() { InstallPreparedUpdate(); },
+            [this]() { RetryPreparedDownload(); }});
+    }
+
+    if (!updateDialog_->IsOpen() && !updateDialog_->Create(m_hWnd)) {
+        return false;
+    }
+    return true;
+}
+
+void MainWindow::StartUpdateCheck(bool manual)
+{
+    if (updateBusy()) {
+        return;
+    }
+
+    latestRelease_.reset();
+    checkIsStartup_ = !manual;
+    checkDismissed_ = false;
+    checking_ = true;
+
+    if (manual && EnsureUpdateDialog()) {
+        updateDialog_->ShowChecking(utf8ToWide(version()));
+    }
+
+    if (!updates_.StartCheck(version())) {
+        checking_ = false;
+        StopUpdatePolling();
+        if (updateDialog_ && updateDialog_->IsOpen() &&
+            updateDialog_->mode() == UpdateDialog::Mode::Checking) {
+            updateDialog_->CloseSilently();
+        }
+        if (manual) {
+            ShowError(m_hWnd, L"另一个更新任务正在进行中。");
+        }
+        UpdateMenuState();
+        return;
+    }
+
+    EnsureUpdatePolling();
+    UpdateMenuState();
+}
+
+void MainWindow::PollUpdate()
+{
+    if (checking_) {
+        std::optional<CheckResult> result = updates_.TakeCheckResult();
+        if (result) {
+            checking_ = false;
+            StopUpdatePolling();
+            HandleCheckResult(std::move(*result));
+            if (checking_ || downloadActive_) {
+                EnsureUpdatePolling();
+            }
+        } else if (!updates_.IsBusy()) {
+            checking_ = false;
+            StopUpdatePolling();
+            UpdateMenuState();
+        }
+        return;
+    }
+
+    if (downloadActive_) {
+        const UpdateService::DownloadSnapshot snapshot = updates_.DownloadProgress();
+        if (updateDialog_ && updateDialog_->IsOpen() &&
+            updateDialog_->mode() == UpdateDialog::Mode::Downloading) {
+            updateDialog_->SetProgress(snapshot.downloaded, snapshot.total);
+        }
+
+        std::optional<DownloadResult> result = updates_.TakeDownloadResult();
+        if (result) {
+            downloadActive_ = false;
+            StopUpdatePolling();
+            HandleDownloadResult(std::move(*result));
+            if (downloadActive_) {
+                EnsureUpdatePolling();
+            }
+        } else if (!updates_.IsBusy()) {
+            downloadActive_ = false;
+            StopUpdatePolling();
+            UpdateMenuState();
+        }
+        return;
+    }
+
+    StopUpdatePolling();
+}
+
+void MainWindow::HandleCheckResult(CheckResult result)
+{
+    const bool manual = !checkIsStartup_;
+    const bool dismissed = checkDismissed_;
+    checkIsStartup_ = true;
+    checkDismissed_ = false;
+
+    if (updateDialog_ && updateDialog_->IsOpen() &&
+        updateDialog_->mode() == UpdateDialog::Mode::Checking) {
+        updateDialog_->CloseSilently();
+    }
+
+    if (dismissed || result.status == CheckStatus::Cancelled) {
+        UpdateMenuState();
+        return;
+    }
+
+    if (result.status == CheckStatus::NoRelease) {
+        if (manual) {
+            ShowInfo(m_hWnd, L"尚未发布可用的版本。");
+        }
+        UpdateMenuState();
+        return;
+    }
+
+    if (result.status != CheckStatus::Ok) {
+        if (manual) {
+            ShowError(m_hWnd, result.error.empty()
+                                  ? L"检查更新失败。"
+                                  : utf8ToWide(result.error));
+        }
+        UpdateMenuState();
+        return;
+    }
+
+    if (!result.hasUpdate) {
+        if (manual) {
+            ShowInfo(m_hWnd, L"当前版本 v" + utf8ToWide(version()) + L" 已是最新版本。");
+        }
+        UpdateMenuState();
+        return;
+    }
+
+    latestRelease_ = std::move(result.release);
+    if (!manual && !ignoredVersion_.empty() &&
+        ignoredVersion_ == latestRelease_->version) {
+        UpdateMenuState();
+        return;
+    }
+
+    const std::wstring currentVersion = utf8ToWide(version());
+    const bool hasInstaller = findInstallerAsset(*latestRelease_) != nullptr;
+    switch (AskUpdatePrompt(m_hWnd, currentVersion, *latestRelease_, hasInstaller)) {
+    case UpdatePromptChoice::Install:
+        if (hasInstaller) {
+            StartDownloadForRelease(*latestRelease_);
+        } else if (!openReleasePage(*latestRelease_)) {
+            ShowError(m_hWnd, L"无法打开 GitHub 发布页面。");
+        }
+        break;
+    case UpdatePromptChoice::OpenPage:
+        if (!openReleasePage(*latestRelease_)) {
+            ShowError(m_hWnd, L"无法打开 GitHub 发布页面。");
+        }
+        break;
+    case UpdatePromptChoice::Ignore:
+        ignoredVersion_ = latestRelease_->version;
+        if (settings_ != nullptr) {
+            settings_->set("update.ignoredVersion", ignoredVersion_);
+        }
+        break;
+    case UpdatePromptChoice::Later:
+    default:
+        break;
+    }
+    UpdateMenuState();
+}
+
+void MainWindow::StartDownloadForRelease(const ReleaseInfo& release)
+{
+    if (downloadActive_ || updates_.IsBusy()) {
+        return;
+    }
+
+    latestRelease_ = release;
+    const ReleaseAsset* asset = findInstallerAsset(release);
+    if (asset == nullptr) {
+        if (!openReleasePage(release)) {
+            ShowError(m_hWnd, L"此版本没有提供可下载的安装包。");
+        }
+        return;
+    }
+
+    if (preparedInstallerVersion_ == release.version &&
+        !preparedInstallerPath_.empty()) {
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(preparedInstallerPath_, ec)) {
+            if (EnsureUpdateDialog()) {
+                updateDialog_->ShowReady(utf8ToWide(release.version));
+            }
+            UpdateMenuState();
+            return;
+        }
+        preparedInstallerPath_.clear();
+        preparedInstallerVersion_.clear();
+    }
+
+    const std::filesystem::path directory = updateDirectory();
+    std::error_code ec;
+    std::filesystem::create_directories(directory, ec);
+    if (ec) {
+        ShowError(m_hWnd, L"无法创建更新下载目录：\n" + directory.wstring() + L"\n\n" +
+                              utf8ToWide(ec.message()));
+        return;
+    }
+
+    const std::wstring target =
+        (directory / installerFileName(*asset, release)).wstring();
+    if (!EnsureUpdateDialog()) {
+        ShowError(m_hWnd, L"无法打开更新下载窗口。");
+        return;
+    }
+
+    preparedInstallerPath_.clear();
+    preparedInstallerVersion_.clear();
+    updateDialog_->ShowDownloading(utf8ToWide(release.version), utf8ToWide(asset->name),
+                                   asset->size);
+
+    if (!updates_.StartDownload(*asset, target)) {
+        updateDialog_->ShowError(L"另一个更新任务正在进行中。");
+        return;
+    }
+
+    downloadActive_ = true;
+    EnsureUpdatePolling();
+    UpdateMenuState();
+}
+
+void MainWindow::HandleDownloadResult(DownloadResult result)
+{
+    const bool dialogOpen = updateDialog_ && updateDialog_->IsOpen();
+
+    if (result.cancelled) {
+        if (dialogOpen && updateDialog_->mode() == UpdateDialog::Mode::Downloading) {
+            updateDialog_->CloseSilently();
+        }
+        UpdateMenuState();
+        return;
+    }
+
+    if (!result.success) {
+        if (dialogOpen && updateDialog_->mode() == UpdateDialog::Mode::Downloading) {
+            updateDialog_->ShowError(utf8ToWide(result.error.empty() ? "下载失败。"
+                                                                     : result.error));
+        }
+        UpdateMenuState();
+        return;
+    }
+
+    preparedInstallerPath_ = result.path;
+    preparedInstallerVersion_ =
+        latestRelease_ ? latestRelease_->version : std::string{};
+
+    if (dialogOpen) {
+        updateDialog_->ShowReady(utf8ToWide(preparedInstallerVersion_));
+    } else {
+        ShowInfo(m_hWnd, L"新版本已下载完成。可从“帮助 → 检查更新”安装。");
+    }
+    UpdateMenuState();
+}
+
+void MainWindow::DismissUpdateDialog()
+{
+    if (!updateDialog_ || !updateDialog_->IsOpen()) {
+        return;
+    }
+
+    switch (updateDialog_->mode()) {
+    case UpdateDialog::Mode::Checking:
+        checkDismissed_ = true;
+        updates_.RequestCancel();
+        break;
+    case UpdateDialog::Mode::Downloading:
+        updates_.RequestCancel();
+        break;
+    case UpdateDialog::Mode::Ready:
+        // Keep the verified installer for a later installation.
+        break;
+    case UpdateDialog::Mode::Error:
+    default:
+        break;
+    }
+    UpdateMenuState();
+}
+
+void MainWindow::InstallPreparedUpdate()
+{
+    std::error_code ec;
+    const bool installerMissing =
+        preparedInstallerPath_.empty() ||
+        !std::filesystem::is_regular_file(preparedInstallerPath_, ec);
+    if (installerMissing) {
+        preparedInstallerPath_.clear();
+        preparedInstallerVersion_.clear();
+        if (updateDialog_ && updateDialog_->IsOpen()) {
+            updateDialog_->ShowError(L"安装包已不存在，请重新下载。");
+        } else {
+            ShowError(m_hWnd, L"安装包已不存在，请重新检查更新。");
+        }
+        UpdateMenuState();
+        return;
+    }
+
+    // Saving or discarding every open document happens here; a Cancel leaves
+    // the update window open so the user can install later.
+    if (!ConfirmCloseAll()) {
+        return;
+    }
+
+    if (!LaunchInstaller(preparedInstallerPath_)) {
+        ShowError(m_hWnd, L"无法启动安装程序：\n" + preparedInstallerPath_);
+        return;
+    }
+
+    // WM_CLOSE saves the session and settings, then shuts the process down.
+    // LaunchInstaller waits briefly before starting the setup, so the
+    // installer can replace the executable.
+    ::PostMessageW(m_hWnd, WM_CLOSE, 0, 0);
+}
+
+void MainWindow::RetryPreparedDownload()
+{
+    if (latestRelease_) {
+        StartDownloadForRelease(*latestRelease_);
+    }
 }
 
 LRESULT MainWindow::OnHelpAbout(WORD, WORD, HWND, BOOL&)

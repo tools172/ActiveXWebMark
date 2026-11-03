@@ -57,4 +57,9 @@ std::unique_ptr<ISettings> createSettings()
     return std::make_unique<JsonFileSettings>(path);
 }
 
+std::filesystem::path updateDirectory()
+{
+    return settingsFilePath().parent_path() / L"updates";
+}
+
 } // namespace awm

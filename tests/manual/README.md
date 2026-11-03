@@ -38,6 +38,9 @@ powershell -ExecutionPolicy Bypass -File tests/manual/tabstrip-smoke.ps1
 `%LOCALAPPDATA%\ActiveXWebMark\settings.json`，因此可以和已打开的 ActiveXWebMark 同时运行，
 也不会改变你的标签会话、最近文件或窗口布局。
 
+两个脚本还会设置 `AWM_DISABLE_UPDATE_CHECK=1`，关闭启动时的后台更新检测，避免更新提示
+打扰自动化步骤。手动验证更新功能时请不要设置该变量。
+
 ## find-smoke.ps1
 
 检查预览查找栏（`AwmFindBar`）：

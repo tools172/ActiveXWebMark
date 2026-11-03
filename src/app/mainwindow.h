@@ -7,6 +7,7 @@ extern CAppModule _Module;
 #include <atlwin.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -20,9 +21,12 @@ extern CAppModule _Module;
 #include "markdown/cmarkengine.h"
 #include "settings/isettings.h"
 #include "theme.h"
+#include "update/updateservice.h"
 #include "viewstate.h"
 
 namespace awm {
+
+class UpdateDialog;
 
 /// Application main window: tab strip, active document view, menus and
 /// persistence. Model state (documents, recent files) lives in app/core classes.
@@ -51,6 +55,7 @@ public:
         MESSAGE_HANDLER(WM_GETMINMAXINFO, OnGetMinMaxInfo)
         MESSAGE_HANDLER(WM_DPICHANGED, OnDpiChanged)
         MESSAGE_HANDLER(WM_INITMENUPOPUP, OnInitMenuPopup)
+        MESSAGE_HANDLER(WM_TIMER, OnTimer)
         COMMAND_ID_HANDLER(cmd::kFileOpen, OnFileOpen)
         COMMAND_ID_HANDLER(cmd::kFileSave, OnFileSave)
         COMMAND_ID_HANDLER(cmd::kFileSaveAs, OnFileSaveAs)
@@ -66,6 +71,7 @@ public:
         COMMAND_ID_HANDLER(cmd::kEditFindNext, OnEditFindNext)
         COMMAND_ID_HANDLER(cmd::kEditFindPrevious, OnEditFindPrevious)
         COMMAND_ID_HANDLER(cmd::kRecentMore, OnRecentMore)
+        COMMAND_ID_HANDLER(cmd::kHelpCheckUpdates, OnHelpCheckUpdates)
         COMMAND_ID_HANDLER(cmd::kHelpAbout, OnHelpAbout)
         COMMAND_RANGE_HANDLER(cmd::kRecentBase, cmd::kRecentBase + cmd::kRecentCount - 1,
                               OnRecentFile)
@@ -81,6 +87,7 @@ private:
     LRESULT OnGetMinMaxInfo(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnDpiChanged(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnInitMenuPopup(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnTimer(UINT, WPARAM, LPARAM, BOOL&);
 
     LRESULT OnFileOpen(WORD, WORD, HWND, BOOL&);
     LRESULT OnFileSave(WORD, WORD, HWND, BOOL&);
@@ -98,7 +105,22 @@ private:
     LRESULT OnEditFindPrevious(WORD, WORD, HWND, BOOL&);
     LRESULT OnRecentFile(WORD, WORD, HWND, BOOL&);
     LRESULT OnRecentMore(WORD, WORD, HWND, BOOL&);
+    LRESULT OnHelpCheckUpdates(WORD, WORD, HWND, BOOL&);
     LRESULT OnHelpAbout(WORD, WORD, HWND, BOOL&);
+
+    // Update checking and installation.
+    void StartUpdateCheck(bool manual);
+    void PollUpdate();
+    void HandleCheckResult(CheckResult result);
+    void HandleDownloadResult(DownloadResult result);
+    void StartDownloadForRelease(const ReleaseInfo& release);
+    void DismissUpdateDialog();
+    void InstallPreparedUpdate();
+    void RetryPreparedDownload();
+    bool EnsureUpdateDialog();
+    void EnsureUpdatePolling();
+    void StopUpdatePolling();
+    bool updateBusy() const;
 
     DocumentView* ActiveView() const;
     DocumentViewServices MakeServices();
@@ -150,7 +172,24 @@ private:
     HMENU fileMenu_ = nullptr;
     HMENU editMenu_ = nullptr;
     HMENU viewMenu_ = nullptr;
+    HMENU helpMenu_ = nullptr;
     HMENU recentMenu_ = nullptr;
+
+    static constexpr UINT_PTR kStartupUpdateTimer = 0xA1;
+    static constexpr UINT_PTR kUpdatePollTimer = 0xA2;
+    static constexpr UINT kStartupUpdateDelayMs = 1500;
+    static constexpr UINT kUpdatePollIntervalMs = 100;
+
+    UpdateService updates_;
+    std::unique_ptr<UpdateDialog> updateDialog_;
+    std::optional<ReleaseInfo> latestRelease_;
+    std::wstring preparedInstallerPath_;
+    std::string preparedInstallerVersion_;
+    std::string ignoredVersion_;
+    bool checking_ = false;
+    bool checkIsStartup_ = true;
+    bool checkDismissed_ = false;
+    bool downloadActive_ = false;
 
     WindowPlacementState placement_;
     bool startMaximized_ = false;

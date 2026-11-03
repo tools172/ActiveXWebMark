@@ -25,8 +25,17 @@ jobs:
         with:
           arch: x64
 
+      - name: Extract version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}" -replace '^v', ''
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { $v = '0.0.0' }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "WIX_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Configure (CMake + vcpkg)
-        run: cmake --preset ci
+        run: cmake --preset ci -DAWM_VERSION=${{ steps.version.outputs.version }}
 
       - name: Build
         run: cmake --build --preset ci
@@ -42,15 +51,6 @@ jobs:
       - name: Generate changelog
         shell: pwsh
         run: git-cliff --config cliff.toml --latest --strip header --output release-notes.md
-
-      - name: Extract version from tag
-        id: version
-        shell: pwsh
-        run: |
-          $v = "${{ github.ref_name }}" -replace '^v', ''
-          if ($v -notmatch '^\d+\.\d+\.\d+$') { $v = '0.0.0' }
-          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "WIX_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Prepare output directory
         shell: pwsh

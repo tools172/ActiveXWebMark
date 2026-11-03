@@ -13,6 +13,7 @@ add_executable(awm_core_tests
     core/document_session_test.cpp
     core/recent_files_test.cpp
     core/previewhtml_test.cpp
+    core/update_test.cpp
 )
 
 target_link_libraries(awm_core_tests PRIVATE awm_core GTest::gtest_main)

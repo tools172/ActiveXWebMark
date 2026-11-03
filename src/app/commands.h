@@ -23,6 +23,7 @@ constexpr int kEditFindNext = 1021;
 constexpr int kEditFindPrevious = 1022;
 
 // Help commands.
+constexpr int kHelpCheckUpdates = 1101;
 constexpr int kHelpAbout = 1100;
 
 // Recent-file menu commands. IDs 3000..3019 are the first page.

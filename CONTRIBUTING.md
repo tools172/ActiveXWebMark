@@ -33,8 +33,10 @@ git push -u origin feature/xxx
 
 ## 发布流程
 
-1. `dev` 稳定后，发起 PR：`dev` → `main`，CI 通过后合入。
-2. 在 `main` 上打版本 tag 并推送：
+1. 更新 `CMakeLists.txt` 中的 `project(ActiveXWebMark VERSION ...)` 为即将发布的版本号。
+   发布工作流会用 tag 覆盖 Release 构建的版本号，但本地构建读取的是这里。
+2. `dev` 稳定后，发起 PR：`dev` → `main`，CI 通过后合入。
+3. 在 `main` 上打版本 tag 并推送：
 
    ```bash
    git checkout main
@@ -43,8 +45,9 @@ git push -u origin feature/xxx
    git push origin v0.1.0
    ```
 
-3. GitHub Actions 自动构建并生成 WiX MSI 与 NSIS Setup，同时按提交记录生成
-   变更说明（changelog），一并附到对应 Release。
+4. GitHub Actions 自动构建并生成 WiX MSI 与 NSIS Setup，同时按提交记录生成
+   变更说明（changelog），一并附到对应 Release。应用内更新依赖这些 Release 资产，
+   请不要手动删除 `*-setup.exe` / `*.msi`。
 
 ## 提交规范
 

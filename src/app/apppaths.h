@@ -16,4 +16,10 @@ std::filesystem::path settingsFilePath();
 /// Creates the application settings store (creating its directory if needed).
 std::unique_ptr<ISettings> createSettings();
 
+/// Directory used for downloaded update installers.
+///
+/// Lives next to the settings file, so it follows the same
+/// %LOCALAPPDATA%\ActiveXWebMark (or AWM_SETTINGS_DIR) location.
+std::filesystem::path updateDirectory();
+
 } // namespace awm

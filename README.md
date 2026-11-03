@@ -26,6 +26,9 @@
   原生控件启用 Common Controls v6 与 Explorer 主题，编辑器/预览配色统一。
 - **安全预览**：相对图片与链接通过 `<base>` 正确解析；外部链接交给系统浏览器打开，
   预览不会被导航走；页面内 `#锚点` 链接在预览内滚动。
+- **在线更新**：启动后后台检测一次 GitHub Releases 是否有新版本，发现后提示
+  “立即升级 / 下次再说 / 忽略此版本”；“帮助 → 检查更新”可随时手动检测。下载过程在
+  浮动小窗口中显示进度，完成后可一键退出程序并启动安装包。
 - **关于**：帮助 → 关于（F1）显示软件名、版本号、构建配置、技术栈与第三方组件。
 
 ## 快捷键
@@ -50,18 +53,20 @@
 ## 技术栈
 
 C++17 · WTL 10 · Scintilla · cmark（CommonMark） · discount · IE/MSHTML 预览 ·
-GDI+ 自绘 · CMake · vcpkg（manifest 模式） · GoogleTest
+GDI+ 自绘 · WinHTTP（更新检查与下载） · CMake · vcpkg（manifest 模式） · GoogleTest
 
 ## 目录结构
 
 ```
 third_party/   vcpkg 之外的头文件/源码库（WTL、PEG Markdown Highlight）
 src/core/      纯 C++ 核心：文档模型 / 会话状态 / Markdown 引擎 / 高亮 / 设置 / 最近文件
+src/core/update/  GitHub Release 解析与版本比较
 src/layout/    纯几何库：分屏、导航、标签布局与 TOC 层级（无 Windows 依赖，可单测）
 src/ui/        可复用自绘控件：Theme / TabStrip / Splitter / NavPanel
 src/editor/    编辑器抽象 + Scintilla 实现
 src/preview/   预览抽象 + IE 实现（插件式，未来可加 WebView2 / Miniblink / litehtml）
 src/app/       WTL 主程序：MainWindow / DocumentView / 菜单 / 对话框 / 持久化
+src/app/update/  更新检查、下载与安装程序启动
 tests/         GoogleTest 单元测试（core + layout）
 ```
 
@@ -92,9 +97,11 @@ ctest --preset vs2022
 
 - 最近打开的文件列表；
 - 编辑器/导航显隐、分屏方向与比例、导航宽度；
-- 窗口位置与最大化状态。
+- 窗口位置与最大化状态；
+- 被“忽略此版本”的更新版本号（`update.ignoredVersion`）。
 
-删除该文件即可恢复默认设置。
+下载的更新安装包保存在 `%LOCALAPPDATA%\ActiveXWebMark\updates\`。删除设置文件即可
+恢复默认设置，但不会删除已下载的安装包。
 
 ## CI/CD 与安装包
 
@@ -109,6 +116,9 @@ ctest --preset vs2022
 `nsis/ActiveXWebMark.nsi`（NSIS）。CI 通过 `vcpkg-configuration.json` 里声明的
 overlay ports（`vcpkg-ports/`）复现本机的 discount `/J`、cmark/Scintilla 静态化补丁。
 
+应用内更新读取 GitHub Releases API 的 latest release，优先下载 `*-setup.exe`，其次
+`.msi`；因此每次发布都应附带这两类安装包（当前工作流会自动生成并上传）。
+
 > 运行库依赖：程序以动态 CRT（`/MD`）链接，运行需要
 > 「Microsoft Visual C++ 2015-2022 Redistributable (x64)」，绝大多数 Windows 10/11
 > 已自带。NSIS 安装时如检测不到会给出提示。
@@ -122,6 +132,10 @@ git push origin v0.2.0
 
 推送 tag 后 GitHub Actions 自动构建、跑测试并生成 MSI 与 Setup.exe，作为资产附在
 对应的 GitHub Release 上。tag 建议使用 `v<major>.<minor>.<patch>` 三段格式。
+
+发布工作流会把去掉 `v` 的 tag 版本通过 `-DAWM_VERSION` 注入程序，因此发布包的版本号
+总与 tag 一致；本地开发构建则使用 `CMakeLists.txt` 中 `project(... VERSION ...)` 的
+版本号，发布前请一并更新。
 
 ## 开发协作
 

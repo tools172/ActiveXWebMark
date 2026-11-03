@@ -22,6 +22,9 @@ add_executable(awm_app WIN32
     dialogs.cpp
     filedialogs.cpp
     recentfilesdialog.cpp
+    update/updateclient.cpp
+    update/updatedialog.cpp
+    update/updateservice.cpp
 )
 
 # The product executable is named ActiveXWebMark.exe regardless of the CMake target name.
@@ -43,4 +46,6 @@ target_link_libraries(awm_app PRIVATE
     shlwapi
     ole32
     oleaut32
+    winhttp
+    bcrypt
 )

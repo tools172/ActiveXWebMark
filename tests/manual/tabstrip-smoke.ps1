@@ -108,6 +108,8 @@ New-Item -ItemType Directory -Force -Path $tabDir | Out-Null
 # ---------------------------------------------------------------------------
 $previousSettingsDir = $env:AWM_SETTINGS_DIR
 $env:AWM_SETTINGS_DIR = Join-Path $OutDir "settings"
+$previousUpdateCheck = $env:AWM_DISABLE_UPDATE_CHECK
+$env:AWM_DISABLE_UPDATE_CHECK = "1"
 
 # ---------------------------------------------------------------------------
 # 4. Win32 互操作助手
@@ -560,6 +562,11 @@ finally {
         Remove-Item Env:AWM_SETTINGS_DIR -ErrorAction SilentlyContinue
     } else {
         $env:AWM_SETTINGS_DIR = $previousSettingsDir
+    }
+    if ($null -eq $previousUpdateCheck) {
+        Remove-Item Env:AWM_DISABLE_UPDATE_CHECK -ErrorAction SilentlyContinue
+    } else {
+        $env:AWM_DISABLE_UPDATE_CHECK = $previousUpdateCheck
     }
 }
 
