@@ -33,8 +33,10 @@ git push -u origin feature/xxx
 
 ## 发布流程
 
-1. `dev` 稳定后，发起 PR：`dev` → `main`，CI 通过后合入。
-2. 在 `main` 上打版本 tag 并推送：
+1. 更新 `CMakeLists.txt` 中的 `project(ActiveXWebMark VERSION ...)` 为即将发布的版本号。
+   发布工作流会用 tag 覆盖 Release 构建的版本号，但本地构建读取的是这里。
+2. `dev` 稳定后，发起 PR：`dev` → `main`，CI 通过后合入。
+3. 在 `main` 上打版本 tag 并推送：
 
    ```bash
    git checkout main
@@ -43,7 +45,9 @@ git push -u origin feature/xxx
    git push origin v0.1.0
    ```
 
-3. GitHub Actions 自动构建并生成 WiX MSI 与 NSIS Setup，附到对应 Release。
+4. GitHub Actions 自动构建并生成 WiX MSI 与 NSIS Setup，同时按提交记录生成
+   变更说明（changelog），一并附到对应 Release。应用内更新依赖这些 Release 资产，
+   请不要手动删除 `*-setup.exe` / `*.msi`。
 
 ## 提交规范
 
@@ -58,6 +62,22 @@ git push -u origin feature/xxx
 | test | 测试 |
 | build | 构建/依赖（CMake、vcpkg） |
 | ci | CI/CD（GitHub Actions） |
+
+## 变更记录（Changelog）
+
+Release 页面上的变更说明由 [git-cliff](https://git-cliff.org/) 根据 Conventional
+Commits 自动生成，范围是上一个标签到本次标签之间的提交，配置见 `cliff.toml`。
+
+- 只有 `feat`（新功能）、`fix`（修复）、`perf`（性能）、`revert`（回滚）会出现在
+  变更记录中；`test`、`docs`、`ci`、`build`、`style`、`refactor`、`chore` 会被自动过滤。
+- 用户可见的行为变化必须使用 `feat` 或 `fix`，否则不会进入更新说明。
+- 破坏性变更使用 `feat!:` / `fix!:` 或在提交正文写 `BREAKING CHANGE:`，会单独标记。
+
+本地预览变更记录（需先安装 git-cliff）：
+
+```bash
+git-cliff --unreleased --strip header
+```
 
 ## 分支保护（仓库管理员在 GitHub 设置）
 

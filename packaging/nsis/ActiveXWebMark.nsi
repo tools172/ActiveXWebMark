@@ -1,8 +1,8 @@
-; ActiveXWebMark — NSIS installer script.
+﻿; ActiveXWebMark — NSIS installer script.
 ;
 ; Build from anywhere:
-;   makensis /DVERSION=0.1.0 packaging/nsis/ActiveXWebMark.nsi
-; Output: dist\ActiveXWebMark-0.1.0-setup.exe (at the repository root)
+;   makensis /DVERSION=0.2.0 packaging/nsis/ActiveXWebMark.nsi
+; Output: dist\ActiveXWebMark-0.2.0-setup.exe (at the repository root)
 ;
 ; NSIS resolves relative paths against this script's directory (packaging/nsis),
 ; so "..\.." reaches the repository root. CI overrides EXE/OUTDIR with absolute
@@ -27,6 +27,10 @@
 Unicode true
 
 !include "MUI2.nsh"
+
+; Installer and uninstaller use the application icon.
+!define MUI_ICON "..\..\src\app\resources\app.ico"
+!define MUI_UNICON "..\..\src\app\resources\app.ico"
 
 Name "${PRODUCT_NAME}"
 OutFile "${OUTDIR}\${PRODUCT_NAME}-${VERSION}-setup.exe"
@@ -53,8 +57,8 @@ Section "Install" SEC01
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"
-  CreateShortcut "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk" "$INSTDIR\${EXE_NAME}"
-  CreateShortcut "$DESKTOP\${PRODUCT_NAME}.lnk" "$INSTDIR\${EXE_NAME}"
+  CreateShortcut "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk" "$INSTDIR\${EXE_NAME}" "" "$INSTDIR\${EXE_NAME}" 0
+  CreateShortcut "$DESKTOP\${PRODUCT_NAME}.lnk" "$INSTDIR\${EXE_NAME}" "" "$INSTDIR\${EXE_NAME}" 0
 
   WriteRegStr HKLM "Software\${PRODUCT_NAME}" "InstallDir" "$INSTDIR"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" "DisplayName" "${PRODUCT_NAME}"
@@ -63,7 +67,7 @@ Section "Install" SEC01
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" "UninstallString" '"$INSTDIR\uninstall.exe"'
 
   ; Non-fatal warning if the VC++ runtime is missing.
-  IfFileExists "$SYSDIR\vcruntime140.dll" have_crt no_crt
+  IfFileExists "$WINDIR\SysNative\vcruntime140.dll" have_crt no_crt
 have_crt:
   Goto done_crt
 no_crt:

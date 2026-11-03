@@ -3,9 +3,11 @@
 #include <fstream>
 #include <utility>
 
+#include "util/fileutil.h"
+
 namespace awm {
 
-JsonFileSettings::JsonFileSettings(std::string path) : path_(std::move(path))
+JsonFileSettings::JsonFileSettings(std::filesystem::path path) : path_(std::move(path))
 {
     load();
 }
@@ -40,10 +42,10 @@ void JsonFileSettings::load()
 
 void JsonFileSettings::save() const
 {
-    std::ofstream out(path_);
-    if (out) {
-        out << data_.dump(2);
-    }
+    // Reuse the atomic writer so a crash during save cannot leave a truncated
+    // settings file behind.
+    std::error_code ec;
+    writeFile(path_.wstring(), data_.dump(2), ec);
 }
 
 } // namespace awm

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(ActiveXWebMark VERSION 0.1.0 LANGUAGES C CXX)
+project(ActiveXWebMark VERSION 0.2.0 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 # Global compile settings
@@ -30,10 +30,12 @@ endif()
 # Modules
 # ---------------------------------------------------------------------------
 add_subdirectory(src/core)
+add_subdirectory(src/layout)
+add_subdirectory(src/ui)
 
-# editor / preview / app are added as their implementation lands (M1..M4).
 add_subdirectory(src/editor)
 add_subdirectory(src/preview)
+add_subdirectory(src/sync)
 add_subdirectory(src/app)
 
 # ---------------------------------------------------------------------------

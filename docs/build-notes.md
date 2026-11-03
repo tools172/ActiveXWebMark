@@ -73,3 +73,8 @@ curl -L -o "Orc-discount-v3.0.0a.tar.gz" \
 - `third_party/wtl` 来自本机已有的 WTL 10.0.10320；`third_party/peg-markdown-highlight`
   复制自 CuteMarkEd 的 `3rdparty/peg-markdown-highlight`（`pmh_parser.cpp` 已重命名为
   `pmh_parser.c` 以便按 C 编译）。
+- 0.2.0 起界面使用 GDI+ 自绘控件（`src/ui`），并通过
+  `#pragma comment(linker, "/manifestdependency:...Common-Controls 6.0...")`
+  启用 Common Controls v6（现代原生控件外观与 TaskDialog），无需额外的 `.rc`/manifest
+  文件；DPI 感知在 `WinMain` 中通过
+  `SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)` 设置。

@@ -19,24 +19,40 @@ public:
     ~ScintillaEditor() override;
 
     bool Create(HWND parent, const RECT& rc) override;
+    HWND hwnd() const override { return hwnd_; }
+    void HandleHostNotification(LPNMHDR header) override;
     void SetBounds(const RECT& rc) override;
     void Show(bool visible) override;
     void SetText(const std::string& utf8) override;
     std::string GetText() const override;
-    void ApplyHighlighting(const std::vector<StyleSpan>& spans) override;
+    void ApplyHighlighting(const std::string& source,
+                           const std::vector<StyleSpan>& spans) override;
     void GotoLine(int line) override;
+    int FirstVisibleLine() const override;
+    void SetFirstVisibleLine(int line) override;
+    void SetScrollCallback(std::function<void(int firstVisibleLine)> callback) override;
     void SetReadOnly(bool readOnly) override;
+    void SetDpiScale(double scale) override;
+    void Focus() override;
     void SetChangeCallback(std::function<void()> callback) override;
 
 private:
     void SetupStyles();
+    void UpdateMargins();
+    void UpdateLineNumberWidth();
+    void NotifyScrollIfChanged();
     void ApplyStyle(const std::string& source, const std::vector<StyleSpan>& spans);
+    int px(int logicalPixels) const;
 
     static LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     HWND hwnd_ = nullptr;
     WNDPROC originalProc_ = nullptr;
     std::function<void()> changeCallback_;
+    std::function<void(int)> scrollCallback_;
+    double dpiScale_ = 1.0;
+    int lineNumberWidth_ = -1;
+    int lastReportedFirstLine_ = 1;
 };
 
 } // namespace awm

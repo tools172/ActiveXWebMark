@@ -42,6 +42,7 @@ RenderResult DiscountMarkdownEngine::render(const std::string& markdown,
 {
     RenderResult result;
     result.outline = extractHeadings(markdown);
+    makeAnchorsUnique(result.outline);
 
     if (markdown.empty()) {
         return result;

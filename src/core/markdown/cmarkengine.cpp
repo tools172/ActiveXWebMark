@@ -63,11 +63,12 @@ Outline extractOutline(cmark_node* document)
 }
 
 // Adds id="<anchor>" to each <h1>..<h6> opening tag, in document order, so the
-// navigation tree anchors can locate the headings.
+// navigation tree anchors can locate the headings. The opening tag may already
+// contain attributes (notably data-sourcepos), which must be preserved.
 std::string injectHeadingIds(const std::string& html, const Outline& outline)
 {
     std::string result;
-    result.reserve(html.size() + outline.size() * 20);
+    result.reserve(html.size() + outline.size() * 32);
 
     std::size_t pos = 0;
     std::size_t headingIndex = 0;
@@ -78,9 +79,16 @@ std::string injectHeadingIds(const std::string& html, const Outline& outline)
             break;
         }
 
-        // A heading opening tag is exactly "<h" + [1-6] + ">".
-        if (tag + 3 < html.size() && html[tag + 1] == 'h' &&
-            html[tag + 2] >= '1' && html[tag + 2] <= '6' && html[tag + 3] == '>') {
+        const bool isHeading = tag + 3 < html.size() && html[tag + 1] == 'h' &&
+                               html[tag + 2] >= '1' && html[tag + 2] <= '6' &&
+                               (html[tag + 3] == '>' || html[tag + 3] == ' ');
+        if (isHeading) {
+            const std::size_t tagEnd = html.find('>', tag + 3);
+            if (tagEnd == std::string::npos) {
+                result.append(html, pos, std::string::npos);
+                break;
+            }
+
             result.append(html, pos, tag - pos);
             result.push_back('<');
             result.push_back('h');
@@ -90,9 +98,11 @@ std::string injectHeadingIds(const std::string& html, const Outline& outline)
                 result += outline[headingIndex].anchor;
                 result += "\"";
             }
-            result.push_back('>');
+            // Copy everything from just after "<hN" through the closing '>',
+            // including attributes such as data-sourcepos.
+            result.append(html, tag + 3, tagEnd - tag - 2);
             ++headingIndex;
-            pos = tag + 4;
+            pos = tagEnd + 1;
         } else {
             result.append(html, pos, tag - pos + 2);
             pos = tag + 2;
@@ -114,8 +124,11 @@ RenderResult CmarkEngine::render(const std::string& markdown, const RenderOption
 
     if (document != nullptr) {
         result.outline = extractOutline(document);
+        makeAnchorsUnique(result.outline);
 
-        char* html = cmark_render_html(document, CMARK_OPT_UNSAFE);
+        // SOURCEPOS adds data-sourcepos="startLine:col-endLine:col" to every
+        // block element, which the preview uses for scroll synchronization.
+        char* html = cmark_render_html(document, CMARK_OPT_UNSAFE | CMARK_OPT_SOURCEPOS);
         if (html != nullptr) {
             result.bodyHtml = injectHeadingIds(html, result.outline);
             std::free(html);

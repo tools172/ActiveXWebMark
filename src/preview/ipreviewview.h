@@ -15,6 +15,9 @@ struct PreviewCallbacks {
     /// Invoked when the user clicks a link; the host decides whether to open it
     /// in the system browser.
     std::function<void(const std::string& url)> onLink;
+    /// Invoked when the preview scrolls; `sourceLine` is the (fractional)
+    /// Markdown source line at the top of the viewport.
+    std::function<void(double sourceLine)> onScrolledToLine;
     /// Generic message bridge (used by engine-specific JS bridge / scroll sync).
     std::function<void(const std::string& message)> onMessage;
 };
@@ -30,18 +33,46 @@ public:
     virtual ~IPreviewView() = default;
 
     virtual bool Create(HWND host, const RECT& rc) = 0;
+    /// Native host window, used to route keyboard accelerators by focus.
+    /// Returns nullptr when the engine has no single host window.
+    virtual HWND hwnd() const { return nullptr; }
+    /// Destroys the native control and unhooks events. Safe to call twice.
     virtual void Destroy() = 0;
     virtual void SetBounds(const RECT& rc) = 0;
     virtual void Show(bool visible) = 0;
 
+    /// Replaces the rendered document.
+    ///
+    /// Implementations may apply the HTML asynchronously (the IE control is
+    /// ready some time after creation); callers must not assume the new HTML
+    /// is visible when this returns.
     virtual void SetHtml(const std::string& html, const std::string& baseUrl) = 0;
     virtual void SetZoom(int percent) = 0;
     /// Navigates the preview to a section anchor (for TOC navigation).
     virtual void ScrollToAnchor(const std::string& anchor) = 0;
+    /// Scrolls so the given 1-based Markdown source line is at the top.
+    virtual void ScrollToSourceLine(double sourceLine) = 0;
+    /// True when the rendered document exposes source line positions.
+    virtual bool SupportsSourceMapping() const = 0;
     /// Executes JavaScript. Returns false if the engine does not support it.
     virtual bool RunJavaScript(const std::string& script) = 0;
 
+    /// Executes JavaScript and returns the text of the element with the given
+    /// id afterwards (UTF-8), or an empty string when unavailable.
+    ///
+    /// Used to read small results back from the page without a COM callback.
+    virtual std::string RunJavaScriptForResult(const std::string& script,
+                                               const std::string& resultElementId)
+    {
+        (void)script;
+        (void)resultElementId;
+        return {};
+    }
+
     virtual void SetCallbacks(PreviewCallbacks callbacks) = 0;
+
+    /// Gives keyboard focus to the preview surface.
+    virtual void Focus() = 0;
 
     /// Forwards a keyboard message to the underlying control so it can handle
     /// accelerators (e.g. Ctrl+C to copy). Returns true if the message was

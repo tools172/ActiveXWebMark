@@ -1,6 +1,10 @@
 #include "document/headingparser.h"
 
 #include <cctype>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
 
 namespace awm {
 
@@ -102,7 +106,48 @@ std::string slugifyAnchor(const std::string& headingText)
     while (!out.empty() && out.back() == '-') {
         out.pop_back();
     }
-    return out;
+    return out.empty() ? "section" : out;
+}
+
+void makeAnchorsUnique(Outline& outline)
+{
+    // Two passes: first reserve anchors whose text is already unique so a
+    // generated suffix can never collide with a later literal heading such as
+    // "Foo 1" (slug "foo-1") or "Foo 2" (slug "foo-2").
+    std::unordered_map<std::string, int> totals;
+    totals.reserve(outline.size());
+    for (const OutlineItem& item : outline) {
+        const std::string base = item.anchor.empty() ? "section" : item.anchor;
+        ++totals[base];
+    }
+
+    std::unordered_set<std::string> used;
+    used.reserve(outline.size());
+    for (const OutlineItem& item : outline) {
+        const std::string base = item.anchor.empty() ? "section" : item.anchor;
+        if (totals[base] == 1) {
+            used.insert(base);
+        }
+    }
+
+    for (OutlineItem& item : outline) {
+        // slugifyAnchor() never returns an empty string, but the guard keeps
+        // this helper safe for callers that build outlines by hand.
+        const std::string base = item.anchor.empty() ? "section" : item.anchor;
+        if (totals[base] == 1) {
+            item.anchor = base; // Reserved in the first pass.
+            continue;
+        }
+
+        std::string candidate = base;
+        int suffix = 1;
+        while (used.count(candidate) != 0) {
+            candidate = base + "-" + std::to_string(suffix);
+            ++suffix;
+        }
+        item.anchor = std::move(candidate);
+        used.insert(item.anchor);
+    }
 }
 
 } // namespace awm

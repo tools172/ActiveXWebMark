@@ -1,6 +1,7 @@
 #include "scintillaeditor.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <scintilla/Scintilla.h>
 #include <scintilla/SciLexer.h>
@@ -49,13 +50,22 @@ int StyleIdFor(MarkupStyle style)
     }
 }
 
+// Palette shared with awm::ui::Theme (kept local so the editor library does not
+// depend on the UI layer).
+constexpr COLORREF kText = RGB(31, 35, 40);
+constexpr COLORREF kGutterBackground = RGB(247, 248, 250);
+constexpr COLORREF kGutterText = RGB(154, 160, 166);
+constexpr COLORREF kCurrentLine = RGB(246, 249, 255);
+constexpr COLORREF kSelection = RGB(216, 232, 255);
+constexpr COLORREF kAccent = RGB(47, 111, 235);
+
 } // namespace
 
 ScintillaEditor::ScintillaEditor() = default;
 
 ScintillaEditor::~ScintillaEditor()
 {
-    if (hwnd_ != nullptr) {
+    if (hwnd_ != nullptr && ::IsWindow(hwnd_) != FALSE) {
         ::DestroyWindow(hwnd_);
     }
 }
@@ -85,14 +95,50 @@ bool ScintillaEditor::Create(HWND parent, const RECT& rc)
     return true;
 }
 
+void ScintillaEditor::HandleHostNotification(LPNMHDR header)
+{
+    if (header == nullptr) {
+        return;
+    }
+
+    if (header->code == SCN_MODIFIED) {
+        const auto* notification = reinterpret_cast<SCNotification*>(header);
+        if ((notification->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT)) != 0 &&
+            changeCallback_) {
+            changeCallback_();
+        }
+    } else if (header->code == SCN_UPDATEUI) {
+        const auto* notification = reinterpret_cast<SCNotification*>(header);
+        if ((notification->updated & SC_UPDATE_V_SCROLL) != 0) {
+            NotifyScrollIfChanged();
+        }
+        UpdateLineNumberWidth();
+    } else if (header->code == SCN_PAINTED) {
+        // Scintilla 4.4.6 may not deliver SCN_UPDATEUI for some scroll paths
+        // (WM_VSCROLL / SCI_LINESCROLL); painting after a scroll is reliable.
+        NotifyScrollIfChanged();
+    }
+}
+
 void ScintillaEditor::SetText(const std::string& utf8)
 {
     ::SendMessageA(hwnd_, SCI_SETTEXT, 0, reinterpret_cast<LPARAM>(utf8.c_str()));
+    ::SendMessageW(hwnd_, SCI_EMPTYUNDOBUFFER, 0, 0);
+    UpdateLineNumberWidth();
 }
 
 void ScintillaEditor::SetBounds(const RECT& rc)
 {
+    // Preserve the scroll position when a pane/splitter resize changes the
+    // viewport; otherwise the editor jumps back to the top.
+    const int firstVisible =
+        static_cast<int>(::SendMessageW(hwnd_, SCI_GETFIRSTVISIBLELINE, 0, 0));
+    const int xOffset = static_cast<int>(::SendMessageW(hwnd_, SCI_GETXOFFSET, 0, 0));
+
     ::MoveWindow(hwnd_, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, TRUE);
+
+    ::SendMessageW(hwnd_, SCI_SETFIRSTVISIBLELINE, firstVisible, 0);
+    ::SendMessageW(hwnd_, SCI_SETXOFFSET, xOffset, 0);
 }
 
 void ScintillaEditor::Show(bool visible)
@@ -103,14 +149,19 @@ void ScintillaEditor::Show(bool visible)
 std::string ScintillaEditor::GetText() const
 {
     const int length = static_cast<int>(::SendMessageA(hwnd_, SCI_GETLENGTH, 0, 0));
-    std::string text(static_cast<std::size_t>(length), '\0');
+    // SCI_GETTEXT writes the trailing NUL as well, so allocate one extra byte
+    // and then trim it; writing length+1 bytes into a length-sized string was
+    // an out-of-bounds write.
+    std::string text(static_cast<std::size_t>(length) + 1, '\0');
     ::SendMessageA(hwnd_, SCI_GETTEXT, length + 1, reinterpret_cast<LPARAM>(text.data()));
+    text.resize(static_cast<std::size_t>(length));
     return text;
 }
 
-void ScintillaEditor::ApplyHighlighting(const std::vector<StyleSpan>& spans)
+void ScintillaEditor::ApplyHighlighting(const std::string& source,
+                                        const std::vector<StyleSpan>& spans)
 {
-    ApplyStyle(GetText(), spans);
+    ApplyStyle(source, spans);
 }
 
 void ScintillaEditor::GotoLine(int line)
@@ -119,9 +170,53 @@ void ScintillaEditor::GotoLine(int line)
     ::SendMessageW(hwnd_, SCI_GOTOLINE, zeroBased, 0);
 }
 
+int ScintillaEditor::FirstVisibleLine() const
+{
+    if (hwnd_ == nullptr) {
+        return 1;
+    }
+    const int line = static_cast<int>(::SendMessageW(hwnd_, SCI_GETFIRSTVISIBLELINE, 0, 0));
+    return line + 1;
+}
+
+void ScintillaEditor::SetFirstVisibleLine(int line)
+{
+    if (hwnd_ == nullptr) {
+        return;
+    }
+    const int lineCount =
+        std::max(1, static_cast<int>(::SendMessageW(hwnd_, SCI_GETLINECOUNT, 0, 0)));
+    const int target = std::clamp(line, 1, lineCount);
+    ::SendMessageW(hwnd_, SCI_SETFIRSTVISIBLELINE, target - 1, 0);
+}
+
+void ScintillaEditor::SetScrollCallback(std::function<void(int firstVisibleLine)> callback)
+{
+    scrollCallback_ = std::move(callback);
+}
+
 void ScintillaEditor::SetReadOnly(bool readOnly)
 {
     ::SendMessageW(hwnd_, SCI_SETREADONLY, readOnly ? TRUE : FALSE, 0);
+}
+
+void ScintillaEditor::SetDpiScale(double scale)
+{
+    const double normalized = scale > 0.0 ? scale : 1.0;
+    // SetViewSettings() calls this on every layout change; rebuilding all
+    // Scintilla styles is expensive and must only happen on a real DPI change.
+    if (std::abs(normalized - dpiScale_) < 1e-6) {
+        return;
+    }
+    dpiScale_ = normalized;
+    SetupStyles();
+}
+
+void ScintillaEditor::Focus()
+{
+    if (hwnd_ != nullptr) {
+        ::SetFocus(hwnd_);
+    }
 }
 
 void ScintillaEditor::SetChangeCallback(std::function<void()> callback)
@@ -129,34 +224,106 @@ void ScintillaEditor::SetChangeCallback(std::function<void()> callback)
     changeCallback_ = std::move(callback);
 }
 
+int ScintillaEditor::px(int logicalPixels) const
+{
+    return static_cast<int>(std::lround(static_cast<double>(logicalPixels) * dpiScale_));
+}
+
 void ScintillaEditor::SetupStyles()
 {
-    // Base text style: dark on light.
-    ::SendMessageW(hwnd_, SCI_STYLESETFORE, STYLE_DEFAULT, 0x202020);
-    ::SendMessageW(hwnd_, SCI_STYLESETBACK, STYLE_DEFAULT, 0xFFFFFF);
-    ::SendMessageW(hwnd_, SCI_STYLESETFONT, STYLE_DEFAULT, reinterpret_cast<LPARAM>(L"Consolas"));
+    // Base text style: dark on light with a monospaced face.
+    ::SendMessageW(hwnd_, SCI_STYLESETFORE, STYLE_DEFAULT, kText);
+    ::SendMessageW(hwnd_, SCI_STYLESETBACK, STYLE_DEFAULT, RGB(255, 255, 255));
+    ::SendMessageW(hwnd_, SCI_STYLESETFONT, STYLE_DEFAULT,
+                   reinterpret_cast<LPARAM>(L"Consolas"));
     ::SendMessageW(hwnd_, SCI_STYLESETSIZE, STYLE_DEFAULT, 11);
     ::SendMessageW(hwnd_, SCI_STYLECLEARALL, 0, 0);
 
-    auto setStyle = [this](int style, int fore, bool bold, bool italic) {
+    auto setStyle = [this](int style, COLORREF fore, bool bold, bool italic) {
         ::SendMessageW(hwnd_, SCI_STYLESETFORE, style, fore);
         ::SendMessageW(hwnd_, SCI_STYLESETBOLD, style, bold ? TRUE : FALSE);
         ::SendMessageW(hwnd_, SCI_STYLESETITALIC, style, italic ? TRUE : FALSE);
     };
 
-    setStyle(StyleHeading,    0x1A0DAB, true,  false); // blue bold
-    setStyle(StyleEmphasis,   0x202020, false, true);  // italic
-    setStyle(StyleStrong,     0x000000, true,  false); // bold
-    setStyle(StyleCode,       0xC7254E, false, false); // red-ish
-    setStyle(StyleCodeBlock,  0x333333, false, false);
-    setStyle(StyleLink,       0x0000EE, false, false); // blue
-    setStyle(StyleImage,      0x008000, false, false); // green
-    setStyle(StyleListMarker, 0x9C6B00, true,  false);
-    setStyle(StyleBlockQuote, 0x666666, false, true);
-    setStyle(StyleHtml,       0x7A4D00, false, false);
-    setStyle(StyleHrule,      0x999999, false, false);
-    setStyle(StyleComment,    0x008000, false, true);  // green italic
-    setStyle(StyleReference,  0x8A2BE2, false, false); // violet
+    setStyle(StyleHeading,    RGB(11, 87, 208),  true,  false);
+    setStyle(StyleEmphasis,   kText,             false, true);
+    setStyle(StyleStrong,     RGB(0, 0, 0),      true,  false);
+    setStyle(StyleCode,       RGB(194, 24, 91),  false, false);
+    setStyle(StyleCodeBlock,  RGB(55, 65, 81),   false, false);
+    setStyle(StyleLink,       RGB(9, 105, 218),  false, false);
+    setStyle(StyleImage,      RGB(0, 128, 0),    false, false);
+    setStyle(StyleListMarker, RGB(156, 107, 0),  true,  false);
+    setStyle(StyleBlockQuote, RGB(87, 96, 106),  false, true);
+    setStyle(StyleHtml,       RGB(122, 77, 0),   false, false);
+    setStyle(StyleHrule,      RGB(153, 153, 153), false, false);
+    setStyle(StyleComment,    RGB(0, 128, 0),    false, true);
+    setStyle(StyleReference,  RGB(138, 43, 226),  false, false);
+    ::SendMessageW(hwnd_, SCI_STYLESETUNDERLINE, StyleLink, TRUE);
+
+    // Line-number gutter.
+    ::SendMessageW(hwnd_, SCI_STYLESETFORE, STYLE_LINENUMBER, kGutterText);
+    ::SendMessageW(hwnd_, SCI_STYLESETBACK, STYLE_LINENUMBER, kGutterBackground);
+    ::SendMessageW(hwnd_, SCI_STYLESETFONT, STYLE_LINENUMBER,
+                   reinterpret_cast<LPARAM>(L"Consolas"));
+    ::SendMessageW(hwnd_, SCI_STYLESETSIZE, STYLE_LINENUMBER, 9);
+
+    // Margins: line numbers only; no fold/symbol margins.
+    ::SendMessageW(hwnd_, SCI_SETMARGINTYPEN, 0, SC_MARGIN_NUMBER);
+    ::SendMessageW(hwnd_, SCI_SETMARGINWIDTHN, 1, 0);
+    ::SendMessageW(hwnd_, SCI_SETMARGINWIDTHN, 2, 0);
+    ::SendMessageW(hwnd_, SCI_SETMARGINBACKN, 0, kGutterBackground);
+
+    ::SendMessageW(hwnd_, SCI_SETCARETLINEVISIBLE, TRUE, 0);
+    ::SendMessageW(hwnd_, SCI_SETCARETLINEVISIBLEALWAYS, TRUE, 0);
+    ::SendMessageW(hwnd_, SCI_SETCARETLINEBACK, kCurrentLine, 0);
+    ::SendMessageW(hwnd_, SCI_SETCARETFORE, kAccent, 0);
+    ::SendMessageW(hwnd_, SCI_SETCARETWIDTH, px(2), 0);
+    ::SendMessageW(hwnd_, SCI_SETSELBACK, TRUE, kSelection);
+
+    ::SendMessageW(hwnd_, SCI_SETTABWIDTH, 4, 0);
+    ::SendMessageW(hwnd_, SCI_SETUSETABS, FALSE, 0);
+    ::SendMessageW(hwnd_, SCI_SETBUFFEREDDRAW, TRUE, 0);
+
+    UpdateMargins();
+}
+
+void ScintillaEditor::UpdateMargins()
+{
+    ::SendMessageW(hwnd_, SCI_SETMARGINWIDTHN, 1, 0);
+    ::SendMessageW(hwnd_, SCI_SETMARGINWIDTHN, 2, 0);
+    UpdateLineNumberWidth();
+}
+
+void ScintillaEditor::UpdateLineNumberWidth()
+{
+    if (hwnd_ == nullptr) {
+        return;
+    }
+
+    const int lines = std::max(1, static_cast<int>(::SendMessageW(hwnd_, SCI_GETLINECOUNT, 0, 0)));
+    const std::string sample = std::to_string(lines);
+    const int textWidth = static_cast<int>(
+        ::SendMessageA(hwnd_, SCI_TEXTWIDTH, STYLE_LINENUMBER,
+                       reinterpret_cast<LPARAM>(sample.c_str())));
+    const int width = textWidth + px(16);
+    if (width != lineNumberWidth_) {
+        lineNumberWidth_ = width;
+        ::SendMessageW(hwnd_, SCI_SETMARGINWIDTHN, 0, width);
+    }
+}
+
+void ScintillaEditor::NotifyScrollIfChanged()
+{
+    if (!scrollCallback_) {
+        return;
+    }
+
+    const int line = FirstVisibleLine();
+    if (line == lastReportedFirstLine_) {
+        return;
+    }
+    lastReportedFirstLine_ = line;
+    scrollCallback_(line);
 }
 
 void ScintillaEditor::ApplyStyle(const std::string& source, const std::vector<StyleSpan>& spans)
@@ -180,14 +347,12 @@ LRESULT CALLBACK ScintillaEditor::SubclassProc(HWND hwnd, UINT msg, WPARAM wPara
     ScintillaEditor* self =
         reinterpret_cast<ScintillaEditor*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
-    if (msg == WM_NOTIFY) {
-        const auto* nmhdr = reinterpret_cast<NMHDR*>(lParam);
-        if (nmhdr->code == SCN_MODIFIED && self != nullptr && self->changeCallback_) {
-            const auto* scn = reinterpret_cast<SCNotification*>(lParam);
-            if (scn->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT)) {
-                self->changeCallback_();
-            }
-        }
+    if (msg == WM_NCDESTROY && self != nullptr) {
+        WNDPROC original = self->originalProc_;
+        const LRESULT result = ::CallWindowProcW(original, hwnd, msg, wParam, lParam);
+        self->hwnd_ = nullptr;
+        self->originalProc_ = nullptr;
+        return result;
     }
 
     return ::CallWindowProcW(self != nullptr ? self->originalProc_ : nullptr, hwnd, msg, wParam,

@@ -15,20 +15,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # git-cliff needs the full history and all tags to build the range
+          # between the previous release and this one.
+          fetch-depth: 0
 
       - name: Setup MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-
-      - name: Configure (CMake + vcpkg)
-        run: cmake --preset ci
-
-      - name: Build
-        run: cmake --build --preset ci
-
-      - name: Test
-        run: ctest --preset ci
 
       - name: Extract version from tag
         id: version
@@ -38,6 +33,24 @@ jobs:
           if ($v -notmatch '^\d+\.\d+\.\d+$') { $v = '0.0.0' }
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "WIX_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure (CMake + vcpkg)
+        run: cmake --preset ci -DAWM_VERSION=${{ steps.version.outputs.version }}
+
+      - name: Build
+        run: cmake --build --preset ci
+
+      - name: Test
+        run: ctest --preset ci
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff@2
+
+      - name: Generate changelog
+        shell: pwsh
+        run: git-cliff --config cliff.toml --latest --strip header --output release-notes.md
 
       - name: Prepare output directory
         shell: pwsh
@@ -76,6 +89,7 @@ jobs:
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
+          body_path: release-notes.md
           files: |
             dist/ActiveXWebMark-*.msi
             dist/ActiveXWebMark-*-setup.exe
