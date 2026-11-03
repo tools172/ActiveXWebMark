@@ -111,12 +111,7 @@ bool DocumentView::Create(HWND parent, const RECT& rc, std::unique_ptr<DocumentS
     if (navPanel_.Create(m_hWnd, zero, 100)) {
         navPanel_.SetTheme(theme());
         navPanel_.SetCallbacks(ui::NavPanel::Callbacks{
-            [this](std::size_t index) { OnNavSelected(index); },
-            [this]() {
-                settings_.showNav = false;
-                Layout();
-                NotifyViewSettingsChanged();
-            }});
+            [this](std::size_t index) { OnNavSelected(index); }});
         currentOutline_ = session_->outline();
         navPanel_.SetItems(toNavItems(currentOutline_));
     }

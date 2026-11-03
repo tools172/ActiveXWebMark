@@ -29,6 +29,7 @@ public:
         std::function<void(int)> onActivate;
         std::function<void(int)> onClose;
         std::function<void()> onEmptyDoubleClick;
+        std::function<void()> onToggleNav;
     };
 
     bool Create(HWND parent, const RECT& rc, UINT id);
@@ -38,6 +39,8 @@ public:
     int activeIndex() const { return activeIndex_; }
     int preferredHeight() const;
     void SetCallbacks(Callbacks callbacks);
+    /// Reflects the nav sidebar state on the right-hand toggle button.
+    void SetNavVisible(bool visible);
     void OnDpiChanged();
 
     BEGIN_MSG_MAP(TabStrip)
@@ -70,6 +73,17 @@ private:
     std::vector<int> measureWidths(HDC dc) const;
     int hitTab(POINT client) const;
     int hitClose(POINT client) const;
+    bool hitNavButton(POINT client) const;
+    bool hitLeftArrow(POINT client) const;
+    bool hitRightArrow(POINT client) const;
+    int navButtonSize() const;
+    RECT navButtonRect() const;
+    int tabAreaRight() const;
+    int arrowSize() const;
+    RECT leftArrowRect() const;
+    RECT rightArrowRect() const;
+    void scrollTabsBy(int delta);
+    void updateTooltips();
     void paint(HDC dc, const RECT& client);
 
     const Theme* theme_ = nullptr;
@@ -82,8 +96,17 @@ private:
     int hoverIndex_ = -1;
     int closeHoverIndex_ = -1;
     int firstVisible_ = 0;
+    int maxFirstVisible_ = 0;
     int wheelDelta_ = 0;
     bool trackingMouse_ = false;
+    bool navVisible_ = true;
+    bool navHover_ = false;
+    bool overflowLeft_ = false;
+    bool overflowRight_ = false;
+    bool leftArrowHover_ = false;
+    bool rightArrowHover_ = false;
+    bool tooltipAdded_ = false;
+    CToolTipCtrl tooltip_;
 };
 
 } // namespace awm::ui

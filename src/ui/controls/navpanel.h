@@ -27,7 +27,6 @@ public:
 
     struct Callbacks {
         std::function<void(std::size_t)> onSelect;
-        std::function<void()> onCollapseRequested;
     };
 
     bool Create(HWND parent, const RECT& rc, UINT id);
@@ -45,10 +44,6 @@ public:
         MESSAGE_HANDLER(WM_PAINT, OnPaint)
         MESSAGE_HANDLER(WM_ERASEBKGND, OnEraseBkgnd)
         MESSAGE_HANDLER(WM_SIZE, OnSize)
-        MESSAGE_HANDLER(WM_LBUTTONDOWN, OnLButtonDown)
-        MESSAGE_HANDLER(WM_MOUSEMOVE, OnMouseMove)
-        MESSAGE_HANDLER(WM_MOUSELEAVE, OnMouseLeave)
-        MESSAGE_HANDLER(WM_SETCURSOR, OnSetCursor)
         NOTIFY_HANDLER(kTreeId, TVN_SELCHANGED, OnSelChanged)
     END_MSG_MAP()
 
@@ -56,15 +51,10 @@ private:
     LRESULT OnPaint(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnEraseBkgnd(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnSize(UINT, WPARAM, LPARAM, BOOL&);
-    LRESULT OnLButtonDown(UINT, WPARAM, LPARAM, BOOL&);
-    LRESULT OnMouseMove(UINT, WPARAM, LPARAM, BOOL&);
-    LRESULT OnMouseLeave(UINT, WPARAM, LPARAM, BOOL&);
-    LRESULT OnSetCursor(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnSelChanged(int, LPNMHDR, BOOL&);
 
     void applyTheme();
     void layoutChildren();
-    RECT collapseRect() const;
 
     CTreeViewCtrl tree_;
     const Theme* theme_ = nullptr;
@@ -72,8 +62,6 @@ private:
     std::vector<HTREEITEM> handles_; ///< Indexed by flat outline index.
     Callbacks callbacks_;
     bool suppressSelection_ = false;
-    bool collapseHover_ = false;
-    bool trackingMouse_ = false;
 };
 
 } // namespace awm::ui

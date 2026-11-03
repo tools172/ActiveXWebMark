@@ -98,6 +98,151 @@ void drawDirtyDot(Gdiplus::Graphics& graphics, const RECT& rc, const Color& colo
                                         radius * 2.0f));
 }
 
+void fillRoundedRect(Gdiplus::Graphics& graphics, const RECT& rc, float radius,
+                     const Color& color)
+{
+    const float left = static_cast<float>(rc.left);
+    const float top = static_cast<float>(rc.top);
+    const float right = static_cast<float>(rc.right);
+    const float bottom = static_cast<float>(rc.bottom);
+    const float diameter = radius * 2.0f;
+
+    Gdiplus::GraphicsPath path;
+    path.AddArc(left, top, diameter, diameter, 180.0f, 90.0f);
+    path.AddArc(right - diameter, top, diameter, diameter, 270.0f, 90.0f);
+    path.AddArc(right - diameter, bottom - diameter, diameter, diameter, 0.0f, 90.0f);
+    path.AddArc(left, bottom - diameter, diameter, diameter, 90.0f, 90.0f);
+    path.CloseFigure();
+
+    Gdiplus::SolidBrush brush(toGdiColor(color));
+    graphics.FillPath(&brush, &path);
+}
+
+// Compact sidebar glyph: the right-hand column is filled while the sidebar is
+// visible. Deliberately no chevron, so it cannot be mistaken for the tab
+// overflow arrows that sit next to it.
+void drawNavToggleIcon(Gdiplus::Graphics& graphics, const RECT& rc, bool visible, bool hovered,
+                       const Palette& palette, int unit)
+{
+    const Color color = hovered ? palette.textPrimary
+                                : (visible ? palette.accent : palette.textSecondary);
+    const float centerX = (static_cast<float>(rc.left) + static_cast<float>(rc.right)) * 0.5f;
+    const float centerY = (static_cast<float>(rc.top) + static_cast<float>(rc.bottom)) * 0.5f;
+    const float scale = static_cast<float>(std::max(1, unit));
+    const float panelWidth = scale * 3.4f;
+    const float panelHeight = scale * 2.9f;
+    const float panelLeft = centerX - panelWidth * 0.5f;
+    const float panelTop = centerY - panelHeight * 0.5f;
+    const float radius = scale * 0.65f;
+    const float penWidth = std::max(1.0f, scale * 0.33f);
+    const float dividerX = panelLeft + panelWidth * 0.64f;
+
+    const Gdiplus::RectF panel(panelLeft, panelTop, panelWidth, panelHeight);
+    const float diameter = radius * 2.0f;
+    Gdiplus::GraphicsPath path;
+    path.AddArc(panel.X, panel.Y, diameter, diameter, 180.0f, 90.0f);
+    path.AddArc(panel.X + panel.Width - diameter, panel.Y, diameter, diameter, 270.0f, 90.0f);
+    path.AddArc(panel.X + panel.Width - diameter, panel.Y + panel.Height - diameter, diameter,
+                diameter, 0.0f, 90.0f);
+    path.AddArc(panel.X, panel.Y + panel.Height - diameter, diameter, diameter, 90.0f, 90.0f);
+    path.CloseFigure();
+
+    if (visible) {
+        Gdiplus::SolidBrush fill(
+            Gdiplus::Color(90, palette.accent.r, palette.accent.g, palette.accent.b));
+        graphics.FillRectangle(&fill,
+                               Gdiplus::RectF(dividerX + penWidth, panel.Y + penWidth,
+                                              panel.X + panel.Width - dividerX - penWidth * 2.0f,
+                                              panel.Height - penWidth * 2.0f));
+    }
+
+    Gdiplus::Pen pen(toGdiColor(color), penWidth);
+    pen.SetStartCap(Gdiplus::LineCapRound);
+    pen.SetEndCap(Gdiplus::LineCapRound);
+    graphics.DrawPath(&pen, &path);
+    graphics.DrawLine(&pen, dividerX, panel.Y + penWidth * 0.5f, dividerX,
+                      panel.Y + panel.Height - penWidth * 0.5f);
+}
+
+void drawScrollChevron(Gdiplus::Graphics& graphics, const RECT& rc, bool pointLeft, bool hovered,
+                       const Palette& palette, int unit)
+{
+    if (hovered) {
+        RECT background = rc;
+        ::InflateRect(&background, -unit / 2, -unit);
+        fillRoundedRect(graphics, background, static_cast<float>(std::max(1, unit)),
+                        palette.tabHover);
+    }
+
+    const float centerX = (static_cast<float>(rc.left) + static_cast<float>(rc.right)) * 0.5f;
+    const float centerY = (static_cast<float>(rc.top) + static_cast<float>(rc.bottom)) * 0.5f;
+    const float halfWidth = static_cast<float>(std::max(1, unit)) * 0.55f;
+    const float halfHeight = static_cast<float>(std::max(1, unit)) * 0.95f;
+    const float direction = pointLeft ? -1.0f : 1.0f;
+
+    Gdiplus::Pen pen(toGdiColor(hovered ? palette.textPrimary : palette.textSecondary),
+                     std::max(1.0f, static_cast<float>(unit) * 0.4f));
+    pen.SetStartCap(Gdiplus::LineCapRound);
+    pen.SetEndCap(Gdiplus::LineCapRound);
+    graphics.DrawLine(&pen, centerX - halfWidth * direction, centerY - halfHeight,
+                      centerX + halfWidth * direction, centerY);
+    graphics.DrawLine(&pen, centerX + halfWidth * direction, centerY,
+                      centerX - halfWidth * direction, centerY + halfHeight);
+}
+
+// Fades the tab strip edge into the strip background. The opaque end sits on the
+// overflow side so tabs appear to slide underneath the scroll arrow.
+void drawEdgeFade(Gdiplus::Graphics& graphics, const RECT& rc, bool opaqueAtLeft,
+                  const Color& base)
+{
+    const Gdiplus::PointF start(static_cast<float>(rc.left), static_cast<float>(rc.top));
+    const Gdiplus::PointF end(static_cast<float>(rc.right), static_cast<float>(rc.top));
+    const Gdiplus::Color opaque(255, base.r, base.g, base.b);
+    const Gdiplus::Color transparent(0, base.r, base.g, base.b);
+    Gdiplus::LinearGradientBrush brush(start, end, opaqueAtLeft ? opaque : transparent,
+                                       opaqueAtLeft ? transparent : opaque);
+    graphics.FillRectangle(
+        &brush, Gdiplus::RectF(static_cast<float>(rc.left), static_cast<float>(rc.top),
+                               static_cast<float>(rc.right - rc.left),
+                               static_cast<float>(rc.bottom - rc.top)));
+}
+
+int tabsTotalWidth(const std::vector<int>& widths, int gap)
+{
+    int total = 0;
+    for (std::size_t i = 0; i < widths.size(); ++i) {
+        total += widths[i];
+        if (i + 1 < widths.size()) {
+            total += gap;
+        }
+    }
+    return total;
+}
+
+// Smallest first-visible index whose remaining tabs still fit the available
+// width. Scrolling past it would leave a large blank tail in the strip.
+int tailStartIndex(const std::vector<int>& widths, int available, int gap, int padding)
+{
+    if (widths.empty()) {
+        return 0;
+    }
+
+    const int usable = available - padding * 2;
+    int total = 0;
+    int start = static_cast<int>(widths.size()) - 1;
+    for (int i = static_cast<int>(widths.size()) - 1; i >= 0; --i) {
+        total += widths[static_cast<std::size_t>(i)];
+        if (i + 1 < static_cast<int>(widths.size())) {
+            total += gap;
+        }
+        if (total > usable) {
+            break;
+        }
+        start = i;
+    }
+    return start;
+}
+
 void fillSolid(HDC dc, const RECT& rc, COLORREF color)
 {
     HBRUSH brush = ::CreateSolidBrush(color);
@@ -112,9 +257,13 @@ void fillSolid(HDC dc, const RECT& rc, COLORREF color)
 bool TabStrip::Create(HWND parent, const RECT& rc, UINT id)
 {
     RECT rect = rc;
-    return CWindowImpl<TabStrip>::Create(parent, rect, nullptr,
-                                         WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, 0, id) !=
-           nullptr;
+    if (CWindowImpl<TabStrip>::Create(parent, rect, nullptr,
+                                      WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, 0, id) == nullptr) {
+        return false;
+    }
+    tooltip_.Create(m_hWnd);
+    updateTooltips();
+    return true;
 }
 
 void TabStrip::SetTheme(const Theme* theme)
@@ -166,9 +315,22 @@ void TabStrip::SetCallbacks(Callbacks callbacks)
     callbacks_ = std::move(callbacks);
 }
 
+void TabStrip::SetNavVisible(bool visible)
+{
+    if (navVisible_ == visible) {
+        return;
+    }
+    navVisible_ = visible;
+    updateTooltips();
+    if (IsWindow()) {
+        Invalidate(FALSE);
+    }
+}
+
 void TabStrip::OnDpiChanged()
 {
     relayout();
+    ensureActiveVisible();
     if (IsWindow()) {
         Invalidate(FALSE);
     }
@@ -189,10 +351,35 @@ void TabStrip::relayout()
     RECT client = {};
     GetClientRect(&client);
     const int top = theme_->px(7);
-    const RectI area{0, top, static_cast<int>(client.right),
-                     std::max(0, static_cast<int>(client.bottom) - top)};
-    layout_ = layoutTabs(area, widths_, theme_->px(4), theme_->px(8), theme_->px(18),
-                         firstVisible_);
+    const int height = std::max(0, static_cast<int>(client.bottom) - top);
+    const int areaRight = tabAreaRight();
+    const int padding = theme_->px(8);
+    const int gap = theme_->px(4);
+    const int arrow = arrowSize();
+
+    const bool fits = widths_.empty() || tabsTotalWidth(widths_, gap) + padding * 2 <= areaRight;
+    if (fits) {
+        // Everything fits: scrolling is meaningless and must stay at zero.
+        firstVisible_ = 0;
+        maxFirstVisible_ = 0;
+        overflowLeft_ = false;
+        overflowRight_ = false;
+        const RectI area{0, top, areaRight, height};
+        layout_ = layoutTabs(area, widths_, gap, padding, theme_->px(18), firstVisible_);
+        updateTooltips();
+        return;
+    }
+
+    // Overflow: reserve both arrow slots so tab positions stay stable at the
+    // ends, and never scroll past the point where the tail tab is flush.
+    const int available = std::max(0, areaRight - arrow * 2);
+    maxFirstVisible_ = tailStartIndex(widths_, available, gap, padding);
+    firstVisible_ = std::clamp(firstVisible_, 0, maxFirstVisible_);
+    const RectI area{arrow, top, available, height};
+    layout_ = layoutTabs(area, widths_, gap, padding, theme_->px(18), firstVisible_);
+    overflowLeft_ = firstVisible_ > 0;
+    overflowRight_ = firstVisible_ < maxFirstVisible_;
+    updateTooltips();
 }
 
 void TabStrip::ensureActiveVisible()
@@ -206,10 +393,22 @@ void TabStrip::ensureActiveVisible()
         return;
     }
 
-    RECT client = {};
-    GetClientRect(&client);
-    firstVisible_ = scrollToShow(activeIndex_, firstVisible_, client.right, widths_,
-                                 theme_->px(4), theme_->px(8));
+    const int areaRight = tabAreaRight();
+    const int padding = theme_->px(8);
+    const int gap = theme_->px(4);
+    const int arrow = arrowSize();
+    const bool fits = tabsTotalWidth(widths_, gap) + padding * 2 <= areaRight;
+    if (fits) {
+        firstVisible_ = 0;
+        relayout();
+        return;
+    }
+
+    const int available = std::max(0, areaRight - arrow * 2);
+    const int maxStart = tailStartIndex(widths_, available, gap, padding);
+    firstVisible_ =
+        scrollToShow(activeIndex_, firstVisible_, available, widths_, gap, padding);
+    firstVisible_ = std::clamp(firstVisible_, 0, maxStart);
     relayout();
 }
 
@@ -274,6 +473,131 @@ int TabStrip::hitClose(POINT client) const
         }
     }
     return -1;
+}
+
+int TabStrip::navButtonSize() const
+{
+    return theme_ != nullptr ? theme_->px(24) : 24;
+}
+
+RECT TabStrip::navButtonRect() const
+{
+    RECT client = {};
+    GetClientRect(&client);
+    const int size = navButtonSize();
+    const int margin = theme_ != nullptr ? theme_->px(8) : 8;
+    const int right = static_cast<int>(client.right) - margin;
+    const int left = right - size;
+    const int top = std::max(0, (static_cast<int>(client.bottom) - 1 - size) / 2);
+    return RECT{left, top, left + size, top + size};
+}
+
+int TabStrip::tabAreaRight() const
+{
+    const RECT button = navButtonRect();
+    const int gap = theme_ != nullptr ? theme_->px(8) : 8;
+    return std::max(0, static_cast<int>(button.left) - gap);
+}
+
+bool TabStrip::hitNavButton(POINT client) const
+{
+    const RECT rect = navButtonRect();
+    return ::PtInRect(&rect, client) != FALSE;
+}
+
+int TabStrip::arrowSize() const
+{
+    return theme_ != nullptr ? theme_->px(22) : 22;
+}
+
+RECT TabStrip::leftArrowRect() const
+{
+    RECT client = {};
+    GetClientRect(&client);
+    const int top = theme_ != nullptr ? theme_->px(7) : 7;
+    const int bottom = std::max(top, static_cast<int>(client.bottom) - 1);
+    return RECT{0, top, arrowSize(), bottom};
+}
+
+RECT TabStrip::rightArrowRect() const
+{
+    const int right = tabAreaRight();
+    const int top = theme_ != nullptr ? theme_->px(7) : 7;
+    RECT client = {};
+    GetClientRect(&client);
+    const int bottom = std::max(top, static_cast<int>(client.bottom) - 1);
+    return RECT{std::max(0, right - arrowSize()), top, right, bottom};
+}
+
+bool TabStrip::hitLeftArrow(POINT client) const
+{
+    if (!overflowLeft_) {
+        return false;
+    }
+    const RECT rect = leftArrowRect();
+    return ::PtInRect(&rect, client) != FALSE;
+}
+
+bool TabStrip::hitRightArrow(POINT client) const
+{
+    if (!overflowRight_) {
+        return false;
+    }
+    const RECT rect = rightArrowRect();
+    return ::PtInRect(&rect, client) != FALSE;
+}
+
+void TabStrip::scrollTabsBy(int delta)
+{
+    if (maxFirstVisible_ <= 0) {
+        return;
+    }
+    const int next = std::clamp(firstVisible_ + delta, 0, maxFirstVisible_);
+    if (next == firstVisible_) {
+        return;
+    }
+    firstVisible_ = next;
+    relayout();
+    Invalidate(FALSE);
+}
+
+void TabStrip::updateTooltips()
+{
+    if (!IsWindow() || !tooltip_.IsWindow()) {
+        return;
+    }
+
+    const RECT navRect = navButtonRect();
+    const wchar_t* navText = navVisible_ ? L"隐藏目录 (Ctrl+B)" : L"显示目录 (Ctrl+B)";
+    const RECT leftRect = overflowLeft_ ? leftArrowRect() : RECT{0, 0, 0, 0};
+    const RECT rightRect = overflowRight_ ? rightArrowRect() : RECT{0, 0, 0, 0};
+    const wchar_t* leftText = L"显示前面的标签";
+    const wchar_t* rightText = L"显示后面的标签";
+
+    if (!tooltipAdded_) {
+        const auto addTool = [this](UINT id, const RECT& rect, const wchar_t* text) {
+            TOOLINFO info = {};
+            info.cbSize = sizeof(info);
+            info.uFlags = TTF_SUBCLASS;
+            info.hwnd = m_hWnd;
+            info.uId = id;
+            info.rect = rect;
+            info.lpszText = const_cast<LPWSTR>(text);
+            tooltip_.AddTool(&info);
+        };
+        addTool(1, navRect, navText);
+        addTool(2, leftRect, leftText);
+        addTool(3, rightRect, rightText);
+        tooltipAdded_ = true;
+        return;
+    }
+
+    tooltip_.SetToolRect(m_hWnd, 1, &navRect);
+    tooltip_.UpdateTipText(navText, m_hWnd, 1);
+    tooltip_.SetToolRect(m_hWnd, 2, &leftRect);
+    tooltip_.UpdateTipText(leftText, m_hWnd, 2);
+    tooltip_.SetToolRect(m_hWnd, 3, &rightRect);
+    tooltip_.UpdateTipText(rightText, m_hWnd, 3);
 }
 
 LRESULT TabStrip::OnPaint(UINT, WPARAM, LPARAM, BOOL&)
@@ -359,6 +683,22 @@ void TabStrip::paint(HDC dc, const RECT& client)
         }
     }
 
+    // Nav sidebar toggle, pinned to the right end of the strip.
+    const RECT navRect = navButtonRect();
+    if (navHover_) {
+        fillRoundedRect(graphics, navRect, static_cast<float>(theme_->px(6)), palette.tabHover);
+    }
+    drawNavToggleIcon(graphics, navRect, navVisible_, navHover_, palette, theme_->px(4));
+
+    if (overflowLeft_) {
+        drawScrollChevron(graphics, leftArrowRect(), true, leftArrowHover_, palette,
+                          theme_->px(4));
+    }
+    if (overflowRight_) {
+        drawScrollChevron(graphics, rightArrowRect(), false, rightArrowHover_, palette,
+                          theme_->px(4));
+    }
+
     graphics.Flush();
 
     // Text is rendered with GDI for crisp ClearType output.
@@ -389,6 +729,26 @@ void TabStrip::paint(HDC dc, const RECT& client)
                     DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
     }
     ::RestoreDC(dc, saved);
+
+    // Edge fades sit on top of tabs/text on the clipped sides.
+    if (overflowLeft_ || overflowRight_) {
+        Gdiplus::Graphics overlay(dc);
+        overlay.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+        const int top = theme_->px(7);
+        const int bottom = std::max(top, static_cast<int>(client.bottom) - 1);
+        const int fadeWidth = theme_->px(18);
+        if (overflowLeft_) {
+            const int x = arrowSize();
+            RECT fade{x, top, x + fadeWidth, bottom};
+            drawEdgeFade(overlay, fade, true, palette.windowBg);
+        }
+        if (overflowRight_) {
+            const int x = tabAreaRight() - arrowSize();
+            RECT fade{x - fadeWidth, top, x, bottom};
+            drawEdgeFade(overlay, fade, false, palette.windowBg);
+        }
+        overlay.Flush();
+    }
 }
 
 LRESULT TabStrip::OnEraseBkgnd(UINT, WPARAM, LPARAM, BOOL&)
@@ -407,6 +767,22 @@ LRESULT TabStrip::OnSize(UINT, WPARAM, LPARAM, BOOL&)
 LRESULT TabStrip::OnLButtonDown(UINT, WPARAM, LPARAM lParam, BOOL&)
 {
     const POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (hitNavButton(pt)) {
+        if (callbacks_.onToggleNav) {
+            callbacks_.onToggleNav();
+        }
+        return 0;
+    }
+
+    if (hitLeftArrow(pt)) {
+        scrollTabsBy(-1);
+        return 0;
+    }
+    if (hitRightArrow(pt)) {
+        scrollTabsBy(1);
+        return 0;
+    }
+
     const int closeIndex = hitClose(pt);
     if (closeIndex >= 0) {
         if (callbacks_.onClose) {
@@ -425,6 +801,9 @@ LRESULT TabStrip::OnLButtonDown(UINT, WPARAM, LPARAM lParam, BOOL&)
 LRESULT TabStrip::OnLButtonDblClk(UINT, WPARAM, LPARAM lParam, BOOL&)
 {
     const POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (hitNavButton(pt) || hitLeftArrow(pt) || hitRightArrow(pt)) {
+        return 0;
+    }
     if (hitTab(pt) < 0 && callbacks_.onEmptyDoubleClick) {
         callbacks_.onEmptyDoubleClick();
     }
@@ -455,9 +834,17 @@ LRESULT TabStrip::OnMouseMove(UINT, WPARAM, LPARAM lParam, BOOL&)
     const POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
     const int nextHover = hitTab(pt);
     const int nextClose = hitClose(pt);
-    if (nextHover != hoverIndex_ || nextClose != closeHoverIndex_) {
+    const bool nextNavHover = hitNavButton(pt);
+    const bool nextLeftHover = hitLeftArrow(pt);
+    const bool nextRightHover = hitRightArrow(pt);
+    if (nextHover != hoverIndex_ || nextClose != closeHoverIndex_ ||
+        nextNavHover != navHover_ || nextLeftHover != leftArrowHover_ ||
+        nextRightHover != rightArrowHover_) {
         hoverIndex_ = nextHover;
         closeHoverIndex_ = nextClose;
+        navHover_ = nextNavHover;
+        leftArrowHover_ = nextLeftHover;
+        rightArrowHover_ = nextRightHover;
         Invalidate(FALSE);
     }
     return 0;
@@ -466,9 +853,13 @@ LRESULT TabStrip::OnMouseMove(UINT, WPARAM, LPARAM lParam, BOOL&)
 LRESULT TabStrip::OnMouseLeave(UINT, WPARAM, LPARAM, BOOL&)
 {
     trackingMouse_ = false;
-    if (hoverIndex_ != -1 || closeHoverIndex_ != -1) {
+    if (hoverIndex_ != -1 || closeHoverIndex_ != -1 || navHover_ || leftArrowHover_ ||
+        rightArrowHover_) {
         hoverIndex_ = -1;
         closeHoverIndex_ = -1;
+        navHover_ = false;
+        leftArrowHover_ = false;
+        rightArrowHover_ = false;
         Invalidate(FALSE);
     }
     return 0;
@@ -476,7 +867,8 @@ LRESULT TabStrip::OnMouseLeave(UINT, WPARAM, LPARAM, BOOL&)
 
 LRESULT TabStrip::OnMouseWheel(UINT, WPARAM wParam, LPARAM, BOOL&)
 {
-    if (widths_.empty()) {
+    if (widths_.empty() || maxFirstVisible_ <= 0) {
+        wheelDelta_ = 0;
         return 0;
     }
 
@@ -491,7 +883,7 @@ LRESULT TabStrip::OnMouseWheel(UINT, WPARAM wParam, LPARAM, BOOL&)
         wheelDelta_ += WHEEL_DELTA;
     }
 
-    next = clampTabScroll(next, widths_);
+    next = std::clamp(next, 0, maxFirstVisible_);
     if (next != firstVisible_) {
         firstVisible_ = next;
         relayout();
@@ -510,7 +902,9 @@ LRESULT TabStrip::OnSetCursor(UINT, WPARAM, LPARAM lParam, BOOL& handled)
     POINT pt = {};
     ::GetCursorPos(&pt);
     ::ScreenToClient(m_hWnd, &pt);
-    ::SetCursor(::LoadCursorW(nullptr, hitClose(pt) >= 0 ? IDC_HAND : IDC_ARROW));
+    const bool interactive = hitClose(pt) >= 0 || hitNavButton(pt) || hitLeftArrow(pt) ||
+                             hitRightArrow(pt);
+    ::SetCursor(::LoadCursorW(nullptr, interactive ? IDC_HAND : IDC_ARROW));
     return TRUE;
 }
 

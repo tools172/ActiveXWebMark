@@ -1,11 +1,8 @@
 #include "controls/navpanel.h"
 
-#include <windowsx.h>
-
 #include <algorithm>
 #include <utility>
 
-#include <gdiplus.h>
 #include <uxtheme.h>
 
 #include "layout/navrows.h"
@@ -13,11 +10,6 @@
 namespace awm::ui {
 
 namespace {
-
-Gdiplus::Color toGdiColor(const Color& color)
-{
-    return Gdiplus::Color(255, color.r, color.g, color.b);
-}
 
 void fillSolid(HDC dc, const RECT& rc, COLORREF color)
 {
@@ -183,17 +175,6 @@ void NavPanel::layoutChildren()
                      std::max(0, static_cast<int>(client.bottom) - header), TRUE);
 }
 
-RECT NavPanel::collapseRect() const
-{
-    RECT client = {};
-    GetClientRect(&client);
-    const int header = headerHeight();
-    const int size = theme_ != nullptr ? theme_->px(24) : 24;
-    const int right = client.right - (theme_ != nullptr ? theme_->px(10) : 10);
-    const int top = (header - size) / 2;
-    return RECT{right - size, top, right, top + size};
-}
-
 LRESULT NavPanel::OnPaint(UINT, WPARAM, LPARAM, BOOL&)
 {
     PAINTSTRUCT ps = {};
@@ -219,7 +200,7 @@ LRESULT NavPanel::OnPaint(UINT, WPARAM, LPARAM, BOOL&)
     ::SelectObject(dc, theme_ != nullptr ? theme_->uiFontSemibold() : GetStockObject(DEFAULT_GUI_FONT));
     ::SetTextColor(dc, ToColorRef(palette.textSecondary));
     RECT titleRect{theme_ != nullptr ? theme_->px(14) : 14, 0,
-                   client.right - (theme_ != nullptr ? theme_->px(40) : 40), header};
+                   client.right - (theme_ != nullptr ? theme_->px(14) : 14), header};
     ::DrawTextW(dc, L"目录", -1, &titleRect,
                 DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
 
@@ -231,37 +212,6 @@ LRESULT NavPanel::OnPaint(UINT, WPARAM, LPARAM, BOOL&)
                     DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     }
     ::RestoreDC(dc, saved);
-
-    // Collapse chevron (drawn with GDI+ for a smooth stroke). Keep the
-    // Graphics object scoped so it is destroyed before EndPaint releases the DC.
-    const RECT button = collapseRect();
-    {
-        Gdiplus::Graphics graphics(dc);
-        graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-
-        if (collapseHover_) {
-            Gdiplus::SolidBrush background(toGdiColor(palette.accentSoft));
-            graphics.FillRectangle(
-                &background,
-                Gdiplus::RectF(static_cast<float>(button.left),
-                               static_cast<float>(button.top),
-                               static_cast<float>(button.right - button.left),
-                               static_cast<float>(button.bottom - button.top)));
-        }
-
-        const float midX =
-            (static_cast<float>(button.left) + static_cast<float>(button.right)) / 2.0f;
-        const float midY =
-            (static_cast<float>(button.top) + static_cast<float>(button.bottom)) / 2.0f;
-        const float half = 3.0f;
-        Gdiplus::Pen pen(toGdiColor(collapseHover_ ? palette.accent : palette.textSecondary),
-                         1.6f);
-        pen.SetStartCap(Gdiplus::LineCapRound);
-        pen.SetEndCap(Gdiplus::LineCapRound);
-        graphics.DrawLine(&pen, midX - half, midY - half, midX + half, midY);
-        graphics.DrawLine(&pen, midX + half, midY, midX - half, midY + half);
-    }
 
     EndPaint(&ps);
     return 0;
@@ -277,63 +227,6 @@ LRESULT NavPanel::OnSize(UINT, WPARAM, LPARAM, BOOL&)
     layoutChildren();
     Invalidate(FALSE);
     return 0;
-}
-
-LRESULT NavPanel::OnLButtonDown(UINT, WPARAM, LPARAM lParam, BOOL&)
-{
-    const POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-    const RECT button = collapseRect();
-    if (::PtInRect(&button, pt) != FALSE && callbacks_.onCollapseRequested) {
-        callbacks_.onCollapseRequested();
-    }
-    return 0;
-}
-
-LRESULT NavPanel::OnMouseMove(UINT, WPARAM, LPARAM lParam, BOOL&)
-{
-    if (!trackingMouse_) {
-        TRACKMOUSEEVENT tracking = {};
-        tracking.cbSize = sizeof(tracking);
-        tracking.dwFlags = TME_LEAVE;
-        tracking.hwndTrack = m_hWnd;
-        ::TrackMouseEvent(&tracking);
-        trackingMouse_ = true;
-    }
-
-    const POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-    const RECT button = collapseRect();
-    const bool hover = ::PtInRect(&button, pt) != FALSE;
-    if (hover != collapseHover_) {
-        collapseHover_ = hover;
-        Invalidate(FALSE);
-    }
-    return 0;
-}
-
-LRESULT NavPanel::OnMouseLeave(UINT, WPARAM, LPARAM, BOOL&)
-{
-    trackingMouse_ = false;
-    if (collapseHover_) {
-        collapseHover_ = false;
-        Invalidate(FALSE);
-    }
-    return 0;
-}
-
-LRESULT NavPanel::OnSetCursor(UINT, WPARAM, LPARAM lParam, BOOL& handled)
-{
-    if (LOWORD(lParam) != HTCLIENT) {
-        handled = FALSE;
-        return 0;
-    }
-
-    POINT pt = {};
-    ::GetCursorPos(&pt);
-    ::ScreenToClient(m_hWnd, &pt);
-    const RECT button = collapseRect();
-    ::SetCursor(::LoadCursorW(nullptr, ::PtInRect(&button, pt) != FALSE ? IDC_HAND
-                                                                        : IDC_ARROW));
-    return TRUE;
 }
 
 LRESULT NavPanel::OnSelChanged(int, LPNMHDR header, BOOL&)

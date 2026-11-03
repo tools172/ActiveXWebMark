@@ -205,7 +205,8 @@ LRESULT MainWindow::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
     tabStrip_.SetCallbacks(ui::TabStrip::Callbacks{
         [this](int index) { ActivateTab(index); },
         [this](int index) { CloseTab(index); },
-        [this]() { SendCommand(cmd::kFileOpen); }});
+        [this]() { SendCommand(cmd::kFileOpen); },
+        [this]() { SendCommand(cmd::kViewNav); }});
 
     CreateMenuBar();
     RebuildRecentMenu();
@@ -299,6 +300,9 @@ void MainWindow::UpdateMenuState()
                         (viewSettings_.showEditor ? MF_CHECKED : MF_UNCHECKED));
     ::CheckMenuItem(viewMenu_, cmd::kViewNav,
                     MF_BYCOMMAND | (viewSettings_.showNav ? MF_CHECKED : MF_UNCHECKED));
+    if (tabStrip_.IsWindow()) {
+        tabStrip_.SetNavVisible(viewSettings_.showNav);
+    }
     ::CheckMenuItem(viewMenu_, cmd::kViewScrollSync,
                     MF_BYCOMMAND | (viewSettings_.scrollSync ? MF_CHECKED : MF_UNCHECKED));
     ::CheckMenuRadioItem(
