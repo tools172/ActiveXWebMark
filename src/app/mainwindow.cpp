@@ -12,6 +12,7 @@
 #include "doublebuffer.h"
 #include "filedialogs.h"
 #include "recentfilesdialog.h"
+#include "resource.h"
 #include "scintillaeditor.h"
 #include "util/pathutil.h"
 #include "util/stringutil.h"
@@ -166,7 +167,24 @@ DocumentViewServices MainWindow::MakeServices()
 
 LRESULT MainWindow::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
 {
-    theme_.initialize(::GetDpiForWindow(m_hWnd));
+    const UINT dpi = ::GetDpiForWindow(m_hWnd);
+    theme_.initialize(dpi);
+
+    // Title bar / taskbar icon from the executable's embedded resource.
+    const HINSTANCE instance = ::GetModuleHandleW(nullptr);
+    const auto loadAppIcon = [instance, dpi](int metricX, int metricY) -> HICON {
+        return static_cast<HICON>(::LoadImageW(
+            instance, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON,
+            ::GetSystemMetricsForDpi(metricX, dpi),
+            ::GetSystemMetricsForDpi(metricY, dpi),
+            LR_DEFAULTCOLOR | LR_SHARED));
+    };
+    if (HICON bigIcon = loadAppIcon(SM_CXICON, SM_CYICON)) {
+        SetIcon(bigIcon, TRUE);
+    }
+    if (HICON smallIcon = loadAppIcon(SM_CXSMICON, SM_CYSMICON)) {
+        SetIcon(smallIcon, FALSE);
+    }
 
     if (placement_.valid) {
         ::SetWindowPos(m_hWnd, nullptr, placement_.x, placement_.y, placement_.width,

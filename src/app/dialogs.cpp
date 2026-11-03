@@ -3,6 +3,7 @@
 #include <commctrl.h>
 #include <shellapi.h>
 
+#include "resource.h"
 #include "util/stringutil.h"
 #include "version.h"
 
@@ -105,8 +106,9 @@ void ShowAboutDialog(HWND owner)
     config.hwndParent = owner;
     config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW |
                      TDF_ENABLE_HYPERLINKS;
+    config.hInstance = ::GetModuleHandleW(nullptr);
     config.pszWindowTitle = L"关于 ActiveXWebMark";
-    config.pszMainIcon = TD_INFORMATION_ICON;
+    config.pszMainIcon = MAKEINTRESOURCEW(IDI_APPICON);
     config.pszMainInstruction = L"ActiveXWebMark";
     config.pszContent = content.c_str();
     config.pszFooter = footer.c_str();

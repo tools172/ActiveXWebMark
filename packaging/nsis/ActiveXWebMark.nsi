@@ -28,6 +28,10 @@ Unicode true
 
 !include "MUI2.nsh"
 
+; Installer and uninstaller use the application icon.
+!define MUI_ICON "..\..\src\app\resources\app.ico"
+!define MUI_UNICON "..\..\src\app\resources\app.ico"
+
 Name "${PRODUCT_NAME}"
 OutFile "${OUTDIR}\${PRODUCT_NAME}-${VERSION}-setup.exe"
 InstallDir "$PROGRAMFILES64\${PRODUCT_NAME}"
@@ -53,8 +57,8 @@ Section "Install" SEC01
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"
-  CreateShortcut "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk" "$INSTDIR\${EXE_NAME}"
-  CreateShortcut "$DESKTOP\${PRODUCT_NAME}.lnk" "$INSTDIR\${EXE_NAME}"
+  CreateShortcut "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk" "$INSTDIR\${EXE_NAME}" "" "$INSTDIR\${EXE_NAME}" 0
+  CreateShortcut "$DESKTOP\${PRODUCT_NAME}.lnk" "$INSTDIR\${EXE_NAME}" "" "$INSTDIR\${EXE_NAME}" 0
 
   WriteRegStr HKLM "Software\${PRODUCT_NAME}" "InstallDir" "$INSTDIR"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" "DisplayName" "${PRODUCT_NAME}"
