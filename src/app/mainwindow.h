@@ -101,7 +101,9 @@ private:
     void SendCommand(int id);
 
     int FindTabByPath(const std::wstring& path) const;
-    int OpenFileInternal(const std::wstring& path, bool activate);
+    int OpenFileInternal(const std::wstring& path, bool activate, bool reportErrors = true);
+    void RestoreSession();
+    void SaveSession();
     void ActivateTab(int index);
     void CloseTab(int index);
     void CycleTab(int delta);
@@ -142,6 +144,7 @@ private:
 
     WindowPlacementState placement_;
     bool startMaximized_ = false;
+    bool sessionSaved_ = false;
 };
 
 } // namespace awm

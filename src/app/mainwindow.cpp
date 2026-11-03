@@ -211,6 +211,7 @@ LRESULT MainWindow::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
     RebuildRecentMenu();
     UpdateMenuState();
     Layout();
+    RestoreSession();
     return 0;
 }
 
@@ -382,7 +383,7 @@ int MainWindow::FindTabByPath(const std::wstring& path) const
     return -1;
 }
 
-int MainWindow::OpenFileInternal(const std::wstring& path, bool activate)
+int MainWindow::OpenFileInternal(const std::wstring& path, bool activate, bool reportErrors)
 {
     if (path.empty()) {
         return -1;
@@ -405,11 +406,13 @@ int MainWindow::OpenFileInternal(const std::wstring& path, bool activate)
     std::error_code ec;
     std::unique_ptr<IDocument> document = registry_.load(normalized, ec);
     if (!document) {
-        std::wstring message = L"无法打开文件：\n" + normalized;
-        if (ec) {
-            message += L"\n\n" + utf8ToWide(ec.message());
+        if (reportErrors) {
+            std::wstring message = L"无法打开文件：\n" + normalized;
+            if (ec) {
+                message += L"\n\n" + utf8ToWide(ec.message());
+            }
+            ShowError(m_hWnd, message);
         }
-        ShowError(m_hWnd, message);
         if (settings_ != nullptr && !std::filesystem::exists(normalized)) {
             recent_.remove(normalized);
             recent_.save(*settings_, "history.recentFiles");
@@ -433,7 +436,9 @@ int MainWindow::OpenFileInternal(const std::wstring& path, bool activate)
 
     RECT zero = {0, 0, 0, 0};
     if (!view->Create(m_hWnd, zero, std::move(session), MakeServices())) {
-        ShowError(m_hWnd, L"无法创建文档视图。");
+        if (reportErrors) {
+            ShowError(m_hWnd, L"无法创建文档视图。");
+        }
         return -1;
     }
     view->SetViewSettings(viewSettings_);
@@ -487,6 +492,60 @@ void MainWindow::OpenFiles(const std::vector<std::wstring>& paths)
     } else if (activeIndex_ < 0 && !views_.empty()) {
         ActivateTab(0);
     }
+}
+
+void MainWindow::RestoreSession()
+{
+    if (settings_ == nullptr) {
+        return;
+    }
+
+    const SessionState session = LoadSessionState(*settings_);
+    int restored = 0;
+    int active = -1;
+    for (const std::wstring& path : session.files) {
+        std::error_code ec;
+        if (!std::filesystem::is_regular_file(path, ec)) {
+            continue; // The file was moved or deleted since the last run.
+        }
+
+        const int index = OpenFileInternal(path, false, false);
+        if (index < 0) {
+            continue;
+        }
+        ++restored;
+        if (active < 0 && !session.activeFile.empty() &&
+            samePath(path, session.activeFile)) {
+            active = index;
+        }
+    }
+
+    if (active >= 0) {
+        ActivateTab(active);
+    } else if (restored > 0) {
+        ActivateTab(0);
+    }
+}
+
+void MainWindow::SaveSession()
+{
+    if (settings_ == nullptr) {
+        return;
+    }
+
+    std::vector<std::wstring> files;
+    files.reserve(views_.size());
+    for (const std::unique_ptr<DocumentView>& view : views_) {
+        if (view->session().hasPath()) {
+            files.push_back(view->session().path());
+        }
+    }
+
+    std::wstring active;
+    if (activeIndex_ >= 0 && activeIndex_ < static_cast<int>(views_.size())) {
+        active = views_[activeIndex_]->session().path();
+    }
+    SaveSessionState(*settings_, files, active);
 }
 
 void MainWindow::ActivateTab(int index)
@@ -685,6 +744,11 @@ void MainWindow::SaveSettings()
 
 LRESULT MainWindow::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
 {
+    // OnClose normally saves first; this covers shutdown paths that bypass it.
+    if (!sessionSaved_) {
+        SaveSession();
+        sessionSaved_ = true;
+    }
     SaveSettings();
     views_.clear();
     activeIndex_ = -1;
@@ -707,6 +771,8 @@ LRESULT MainWindow::OnClose(UINT, WPARAM, LPARAM, BOOL&)
         return 0;
     }
 
+    SaveSession();
+    sessionSaved_ = true;
     views_.clear();
     activeIndex_ = -1;
     DestroyWindow();

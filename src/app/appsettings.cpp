@@ -1,6 +1,9 @@
 #include "appsettings.h"
 
 #include <algorithm>
+#include <utility>
+
+#include "util/stringutil.h"
 
 namespace awm {
 
@@ -95,6 +98,46 @@ void SaveWindowPlacement(ISettings& settings, HWND window)
     settings.setInt("window.width", normal.right - normal.left);
     settings.setInt("window.height", normal.bottom - normal.top);
     settings.setBool("window.maximized", placement.showCmd == SW_SHOWMAXIMIZED);
+}
+
+SessionState LoadSessionState(ISettings& settings)
+{
+    SessionState state;
+
+    // Windows path names cannot contain control characters, so a newline is a
+    // safe separator and keeps the whole tab list in a single settings value.
+    const std::wstring joined = utf8ToWide(settings.get("session.openFiles"));
+    std::size_t start = 0;
+    while (start < joined.size()) {
+        const std::size_t end = joined.find(L'\n', start);
+        const std::size_t length =
+            end == std::wstring::npos ? std::wstring::npos : end - start;
+        std::wstring path = joined.substr(start, length);
+        if (!path.empty()) {
+            state.files.push_back(std::move(path));
+        }
+        if (end == std::wstring::npos) {
+            break;
+        }
+        start = end + 1;
+    }
+
+    state.activeFile = utf8ToWide(settings.get("session.activeFile"));
+    return state;
+}
+
+void SaveSessionState(ISettings& settings, const std::vector<std::wstring>& files,
+                      const std::wstring& activeFile)
+{
+    std::wstring joined;
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        if (i > 0) {
+            joined.push_back(L'\n');
+        }
+        joined += files[i];
+    }
+    settings.set("session.openFiles", wideToUtf8(joined));
+    settings.set("session.activeFile", wideToUtf8(activeFile));
 }
 
 } // namespace awm
