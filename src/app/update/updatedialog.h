@@ -35,6 +35,8 @@ public:
 
     bool Create(HWND owner);
     void SetCallbacks(Callbacks callbacks);
+    /// Applies the current application palette. Safe before and after Create.
+    void SetPalette(const ui::Palette& palette);
 
     void ShowChecking(const std::wstring& currentVersion);
     void ShowDownloading(const std::wstring& version, const std::wstring& assetName,

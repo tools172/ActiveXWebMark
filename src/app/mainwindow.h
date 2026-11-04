@@ -20,8 +20,10 @@ extern CAppModule _Module;
 #include "highlight/pmhhighlighter.h"
 #include "history/recent_files.h"
 #include "markdown/cmarkengine.h"
+#include "previewassets.h"
 #include "settings/isettings.h"
 #include "theme.h"
+#include "theme/theme_catalog.h"
 #include "update/updateservice.h"
 #include "viewstate.h"
 
@@ -86,6 +88,8 @@ public:
         COMMAND_ID_HANDLER(cmd::kViewSplitStacked, OnViewSplitStacked)
         COMMAND_ID_HANDLER(cmd::kViewToggleSplit, OnViewToggleSplit)
         COMMAND_ID_HANDLER(cmd::kViewScrollSync, OnViewScrollSync)
+        COMMAND_RANGE_HANDLER(cmd::kViewThemeBase,
+                              cmd::kViewThemeBase + cmd::kViewThemeMax - 1, OnViewTheme)
         COMMAND_ID_HANDLER(cmd::kEditFind, OnEditFind)
         COMMAND_ID_HANDLER(cmd::kEditFindNext, OnEditFindNext)
         COMMAND_ID_HANDLER(cmd::kEditFindPrevious, OnEditFindPrevious)
@@ -146,6 +150,7 @@ private:
     LRESULT OnViewSplitStacked(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewToggleSplit(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewScrollSync(WORD, WORD, HWND, BOOL&);
+    LRESULT OnViewTheme(WORD, WORD, HWND, BOOL&);
     LRESULT OnEditFind(WORD, WORD, HWND, BOOL&);
     LRESULT OnEditFindNext(WORD, WORD, HWND, BOOL&);
     LRESULT OnEditFindPrevious(WORD, WORD, HWND, BOOL&);
@@ -193,6 +198,7 @@ private:
     bool SaveActiveAs();
 
     void ApplyViewSettingsToAll();
+    void ApplyTheme(const theme::ThemeDefinition& definition, bool persist);
     void UpdateTabStrip();
     void UpdateWindowTitle();
     void UpdateMenuState();
@@ -207,6 +213,9 @@ private:
     PmhSyntaxHighlighter highlighter_;
     std::unique_ptr<ISettings> settings_;
     RecentFiles recent_;
+
+    // Declared before the views so it outlives their DocumentViewServices.
+    PreviewAssets previewAssets_;
 
     ui::Theme theme_;
     ui::TitleBar titleBar_;
@@ -225,6 +234,7 @@ private:
     HMENU fileMenu_ = nullptr;
     HMENU editMenu_ = nullptr;
     HMENU viewMenu_ = nullptr;
+    HMENU themeMenu_ = nullptr;
     HMENU helpMenu_ = nullptr;
     HMENU recentMenu_ = nullptr;
 

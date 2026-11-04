@@ -49,6 +49,11 @@ void Theme::setDpi(UINT dpi)
     destroyFonts();
 }
 
+void Theme::setPalette(const Palette& palette)
+{
+    palette_ = palette;
+}
+
 int Theme::px(int logicalPx) const
 {
     return ::MulDiv(logicalPx, static_cast<int>(dpi_), 96);

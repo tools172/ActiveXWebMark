@@ -572,7 +572,9 @@ try {
     Check ($popup -ne [IntPtr]::Zero) "点击「视图」弹出菜单"
     if ($popup -ne [IntPtr]::Zero) {
         $hMenu = [AwmTitleBarSmoke]::SendMessageW($popup, 0x01E1, [IntPtr]::Zero, [IntPtr]::Zero)
-        Check (([AwmTitleBarSmoke]::GetMenuItemCount($hMenu)) -eq 8) "视图菜单包含 8 个项目"
+        # 0 editor, 1 nav, 2 sep, 3 side-by-side, 4 stacked, 5 toggle,
+        # 6 sep, 7 scroll sync, 8 sep, 9 theme submenu.
+        Check (([AwmTitleBarSmoke]::GetMenuItemCount($hMenu)) -eq 10) "视图菜单包含 10 个项目"
         $editorState = [AwmTitleBarSmoke]::GetMenuState($hMenu, [uint32]0, 0x0400)
         Check (([uint32]$editorState -band 0x08) -eq 0) "默认隐藏编辑器时「显示编辑器」未勾选"
         $scrollState = [AwmTitleBarSmoke]::GetMenuState($hMenu, [uint32]7, 0x0400)

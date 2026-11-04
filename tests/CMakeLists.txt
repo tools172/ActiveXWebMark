@@ -13,6 +13,7 @@ add_executable(awm_core_tests
     core/document_session_test.cpp
     core/recent_files_test.cpp
     core/previewhtml_test.cpp
+    core/theme_catalog_test.cpp
     core/update_test.cpp
 )
 
@@ -35,11 +36,33 @@ add_test(NAME awm_layout_tests COMMAND awm_layout_tests)
 # GDI-level tests for owner-drawn controls (no window creation required).
 add_executable(awm_ui_tests
     ui/titlebar_test.cpp
+    ui/theme_test.cpp
 )
 
 target_link_libraries(awm_ui_tests PRIVATE awm_ui GTest::gtest_main)
 
 add_test(NAME awm_ui_tests COMMAND awm_ui_tests)
+
+# App-level theme/settings helpers. The app executable is not linkable as a
+# library, so the small pure translation units are compiled into the test.
+add_executable(awm_app_tests
+    app/themeapply_test.cpp
+    app/appsettings_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/app/themeapply.cpp
+    ${CMAKE_SOURCE_DIR}/src/app/appsettings.cpp
+)
+
+target_include_directories(awm_app_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/app)
+
+target_link_libraries(awm_app_tests PRIVATE
+    awm_core
+    awm_layout
+    awm_ui
+    user32
+    GTest::gtest_main
+)
+
+add_test(NAME awm_app_tests COMMAND awm_app_tests)
 
 # Scroll synchronization policy tests (fake editor/preview, no windows).
 add_executable(awm_sync_tests

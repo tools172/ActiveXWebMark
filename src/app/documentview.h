@@ -15,6 +15,7 @@
 #include "ieditorview.h"
 #include "ipreviewview.h"
 #include "markdown/imarkdownengine.h"
+#include "previewassets.h"
 #include "scrollsync.h"
 #include "session/document_session.h"
 #include "theme.h"
@@ -32,6 +33,8 @@ struct DocumentViewServices {
     std::function<std::unique_ptr<IEditorView>()> createEditor;
     std::function<std::unique_ptr<IPreviewView>()> createPreview;
     std::function<void(const std::string& url)> onOpenLink;
+    /// Prism bundle embedded in the executable; null disables highlighting.
+    const PreviewAssets* previewAssets = nullptr;
 };
 
 /// Notifications from a document view back to its owner.
@@ -63,6 +66,15 @@ public:
     /// index (-1 when none). 3: result code (1 empty query, 2 unsupported,
     /// 3 empty preview result, 4 invalid regex, 5 parse error, 6 ok).
     static constexpr UINT kTestFindStateMessage = WM_APP + 0x52;
+    /// Diagnostic hook used by tests/manual/theme-smoke.ps1. wParam 0 returns
+    /// a packed preview state:
+    ///   bits 0-15  token span count
+    ///   bits 16-23 language code block count
+    ///   bit 24     Prism loaded
+    ///   bit 25     computed body background is dark
+    ///   bits 32-39 document.documentMode
+    ///   bits 40-47 number of <script> elements in the preview document
+    static constexpr UINT kTestPreviewStateMessage = WM_APP + 0x54;
 
     ~DocumentView() override;
 
@@ -72,6 +84,11 @@ public:
     void SetCallbacks(DocumentViewCallbacks callbacks);
     void SetViewSettings(const ViewSettings& settings);
     const ViewSettings& viewSettings() const { return settings_; }
+
+    /// Re-applies the active application theme to the editor, nav tree, find
+    /// bar and preview. Call after SetViewSettings has delivered the new theme
+    /// id; hidden tabs defer the preview rebuild until they are activated.
+    void ApplyTheme();
 
     /// Shows the tab and creates/renders its preview if needed.
     void Activate();
@@ -107,6 +124,7 @@ public:
         MESSAGE_HANDLER(WM_NOTIFY, OnNotify)
         MESSAGE_HANDLER(kNavRepaintMessage, OnNavRepaint)
         MESSAGE_HANDLER(kTestFindStateMessage, OnTestFindState)
+        MESSAGE_HANDLER(kTestPreviewStateMessage, OnTestPreviewState)
     END_MSG_MAP()
 
 private:
@@ -117,6 +135,7 @@ private:
     LRESULT OnNotify(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnNavRepaint(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnTestFindState(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnTestPreviewState(UINT, WPARAM, LPARAM, BOOL&);
 
     void EnsurePreview();
     void Layout();

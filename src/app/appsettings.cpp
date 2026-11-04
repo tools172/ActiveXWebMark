@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "theme/theme_catalog.h"
 #include "util/stringutil.h"
 
 namespace awm {
@@ -49,6 +50,7 @@ ViewSettings LoadViewSettings(ISettings& settings)
         ratioFromPercent(settings.getInt("ui.stackedRatio", 55), view.stackedRatio);
     view.navWidth = std::clamp(settings.getInt("ui.navWidth", view.navWidth), 160, 480);
     view.scrollSync = settings.getBool("ui.scrollSync", view.scrollSync);
+    view.theme = theme::ResolveTheme(settings.get("ui.theme", view.theme)).id;
     return view;
 }
 
@@ -62,6 +64,7 @@ void SaveViewSettings(ISettings& settings, const ViewSettings& view)
     settings.setInt("ui.stackedRatio", percentFromRatio(view.stackedRatio));
     settings.setInt("ui.navWidth", std::clamp(view.navWidth, 160, 480));
     settings.setBool("ui.scrollSync", view.scrollSync);
+    settings.set("ui.theme", theme::ResolveTheme(view.theme).id);
 }
 
 WindowPlacementState LoadWindowPlacement(ISettings& settings)

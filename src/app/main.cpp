@@ -12,6 +12,7 @@ extern CAppModule _Module;
 #include <string>
 #include <vector>
 
+#include "browseremulation.h"
 #include "mainwindow.h"
 
 // Activate Common Controls v6 so the native tree/list/dialogs use the modern
@@ -51,6 +52,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*lpC
 {
     // Per-monitor DPI awareness must be set before any window is created.
     ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
+    // The preview uses IE11 features (rgba, classList, PrismJS); the embedded
+    // WebBrowser otherwise defaults to IE7/IE8 emulation.
+    awm::EnsureBrowserEmulation();
 
     INITCOMMONCONTROLSEX commonControls = {};
     commonControls.dwSize = sizeof(commonControls);

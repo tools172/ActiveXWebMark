@@ -22,10 +22,15 @@
   预览中高亮，F3 / Shift+F3 在匹配项之间跳转并自动回绕。
 - **完整保存流程**：Ctrl+S 保存、Ctrl+Shift+S 另存为；编辑后标签显示脏标记，
   关闭标签或退出时提供“保存/不保存/取消”选择。写入采用临时文件原子替换。
-- **精致浅色界面**：自绘标题栏与窗口按钮，菜单与标题合并到标题栏一行（图标 →
+- **代码高亮与主题**：预览中的围栏代码块由内置 PrismJS 1.29 高亮（cpp/c/c#/java/go/
+  python/js/ts/jsx/tsx/json/yaml/ini/bash/powershell/sql/rust/markdown/diff/docker/
+  html/css 等）；内置 6 套主题（GitHub Light、Ulysses、Solarized Light、One Dark、
+  Dracula、Nord），一次切换同时作用于预览、编辑器和自绘主窗口界面，选择会持久化。
+  主题菜单位于“视图 → 主题”。
+- **精致界面与主题**：自绘标题栏与窗口按钮，菜单与标题合并到标题栏一行（图标 →
   菜单 → 标题 → 最小化/最大化/关闭），标签栏位于其下；自绘现代标签栏、分割条与
   导航面板，细边框、悬停反馈、DPI 缩放；原生控件启用 Common Controls v6 与
-  Explorer 主题，编辑器/预览配色统一。
+  Explorer 主题，编辑器/预览配色随主题统一。
 - **安全预览**：相对图片与链接通过 `<base>` 正确解析；外部链接交给系统浏览器打开，
   预览不会被导航走；页面内 `#锚点` 链接在预览内滚动。
 - **在线更新**：启动后后台检测一次 GitHub Releases 是否有新版本，发现后提示
@@ -57,12 +62,26 @@
 ## 技术栈
 
 C++17 · WTL 10 · Scintilla · cmark（CommonMark） · discount · IE/MSHTML 预览 ·
-GDI+ 自绘 · WinHTTP（更新检查与下载） · CMake · vcpkg（manifest 模式） · GoogleTest
+PrismJS 1.29（代码高亮，MIT） · GDI+ 自绘 · WinHTTP（更新检查与下载） · CMake ·
+vcpkg（manifest 模式） · GoogleTest
+
+主题配色参考 [MarkText](https://github.com/marktext/marktext)（MIT）。
+
+## 浏览器兼容性
+
+预览使用 IE/MSHTML。启动时程序会把当前 EXE 名称写入
+`HKCU\Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_BROWSER_EMULATION`
+（值 `11001`），让内嵌 WebBrowser 使用 IE11 文档模式。否则 Windows 会默认退回到
+IE7/IE8 模式，`rgba()` 主题色与 PrismJS 代码高亮都无法工作。该键按用户、按 EXE 名称
+生效，程序退出时不会删除；如果系统禁止写 HKCU，预览仍能显示，但代码块不会高亮。
+
+主题作用于预览、编辑器与自绘主窗口控件；原生弹出菜单、打开/保存对话框、
+TreeView/ListView 的表头与滚动条仍由 Windows 绘制。
 
 ## 目录结构
 
 ```
-third_party/   vcpkg 之外的头文件/源码库（WTL、PEG Markdown Highlight）
+third_party/   vcpkg 之外的头文件/源码库（WTL、PEG Markdown Highlight、PrismJS bundle）
 src/core/      纯 C++ 核心：文档模型 / 会话状态 / Markdown 引擎 / 高亮 / 设置 / 最近文件
 src/core/update/  GitHub Release 解析与版本比较
 src/layout/    纯几何库：分屏、导航、标签/标题栏布局与 TOC 层级（无 Windows 依赖，可单测）
@@ -101,6 +120,7 @@ ctest --preset vs2022
 
 - 最近打开的文件列表；
 - 编辑器/导航显隐、分屏方向与比例、导航宽度；
+- 主题（`ui.theme`，如 `github-light`、`one-dark`、`dracula` 等）；
 - 窗口位置与最大化状态；
 - 被“忽略此版本”的更新版本号（`update.ignoredVersion`）。
 

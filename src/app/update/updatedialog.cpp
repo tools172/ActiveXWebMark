@@ -80,6 +80,19 @@ void UpdateDialog::SetCallbacks(Callbacks callbacks)
     callbacks_ = std::move(callbacks);
 }
 
+void UpdateDialog::SetPalette(const ui::Palette& palette)
+{
+    theme_.setPalette(palette);
+    if (backgroundBrush_ != nullptr) {
+        ::DeleteObject(backgroundBrush_);
+        backgroundBrush_ = nullptr;
+    }
+    if (IsWindow()) {
+        backgroundBrush_ = ::CreateSolidBrush(ui::ToColorRef(theme_.palette().windowBg));
+        Invalidate(TRUE);
+    }
+}
+
 void UpdateDialog::ShowChecking(const std::wstring& currentVersion)
 {
     if (!IsWindow()) {

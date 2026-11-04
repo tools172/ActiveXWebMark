@@ -9,15 +9,27 @@
 
 namespace awm {
 
-RecentFilesDialog::RecentFilesDialog(std::vector<std::wstring> entries, std::size_t pageSize)
-    : entries_(std::move(entries)), pageSize_(pageSize == 0 ? 20 : pageSize)
+RecentFilesDialog::RecentFilesDialog(std::vector<std::wstring> entries,
+                                     std::size_t pageSize, ui::Palette palette)
+    : entries_(std::move(entries)),
+      pageSize_(pageSize == 0 ? 20 : pageSize),
+      palette_(palette)
 {
 }
 
-std::wstring RecentFilesDialog::ShowModal(HWND owner, std::vector<std::wstring> entries,
-                                          std::size_t pageSize)
+RecentFilesDialog::~RecentFilesDialog()
 {
-    RecentFilesDialog dialog(std::move(entries), pageSize);
+    if (backgroundBrush_ != nullptr) {
+        ::DeleteObject(backgroundBrush_);
+        backgroundBrush_ = nullptr;
+    }
+}
+
+std::wstring RecentFilesDialog::ShowModal(HWND owner, std::vector<std::wstring> entries,
+                                          std::size_t pageSize,
+                                          const ui::Palette& palette)
+{
+    RecentFilesDialog dialog(std::move(entries), pageSize, palette);
     if (!dialog.CreateModalWindow(owner)) {
         return {};
     }
@@ -34,6 +46,7 @@ std::wstring RecentFilesDialog::ShowModal(HWND owner, std::vector<std::wstring> 
 bool RecentFilesDialog::CreateModalWindow(HWND owner)
 {
     theme_.initialize(::GetDpiForWindow(owner));
+    theme_.setPalette(palette_);
 
     const int width = theme_.px(700);
     const int height = theme_.px(470);
@@ -59,12 +72,17 @@ void RecentFilesDialog::CreateChildren()
 {
     RECT zero = {0, 0, 0, 0};
 
+    backgroundBrush_ = ::CreateSolidBrush(ui::ToColorRef(theme_.palette().windowBg));
+
     list_.Create(m_hWnd, zero, nullptr,
                  WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | LVS_REPORT | LVS_SINGLESEL |
                      LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
                  0, kListId);
     list_.SetExtendedListViewStyle(LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP);
     ::SetWindowTheme(list_.m_hWnd, L"Explorer", nullptr);
+    ListView_SetBkColor(list_.m_hWnd, ui::ToColorRef(theme_.palette().surface));
+    ListView_SetTextBkColor(list_.m_hWnd, ui::ToColorRef(theme_.palette().surface));
+    ListView_SetTextColor(list_.m_hWnd, ui::ToColorRef(theme_.palette().textPrimary));
     ::SendMessageW(list_.m_hWnd, WM_SETFONT, reinterpret_cast<WPARAM>(theme_.uiFont()), TRUE);
     list_.InsertColumn(0, L"文件", LVCFMT_LEFT, theme_.px(260));
     list_.InsertColumn(1, L"位置", LVCFMT_LEFT, theme_.px(340));
@@ -289,6 +307,17 @@ LRESULT RecentFilesDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
 {
     done_ = true;
     return 0;
+}
+
+LRESULT RecentFilesDialog::OnCtlColorStatic(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
+{
+    HDC dc = reinterpret_cast<HDC>(wParam);
+    const HWND control = reinterpret_cast<HWND>(lParam);
+    const ui::Palette& palette = theme_.palette();
+    ::SetBkMode(dc, TRANSPARENT);
+    ::SetTextColor(dc, ui::ToColorRef(control == info_.m_hWnd ? palette.textSecondary
+                                                               : palette.textPrimary));
+    return reinterpret_cast<LRESULT>(backgroundBrush_);
 }
 
 LRESULT RecentFilesDialog::OnListDoubleClick(int, LPNMHDR, BOOL&)

@@ -18,6 +18,7 @@
 #include "recentfilesdialog.h"
 #include "resource.h"
 #include "scintillaeditor.h"
+#include "themeapply.h"
 #include "update/updatedialog.h"
 #include "util/pathutil.h"
 #include "util/stringutil.h"
@@ -206,6 +207,8 @@ MainWindow::MainWindow() : registry_(DocumentFormatRegistry::createDefault())
         placement_ = LoadWindowPlacement(*settings_);
         ignoredVersion_ = settings_->get("update.ignoredVersion");
     }
+    theme_.setPalette(MakePalette(theme::ResolveTheme(viewSettings_.theme)));
+    previewAssets_ = LoadPreviewAssets(::GetModuleHandleW(nullptr));
     startMaximized_ = placement_.valid && placement_.maximized;
 }
 
@@ -222,6 +225,7 @@ MainWindow::~MainWindow()
         fileMenu_ = nullptr;
         editMenu_ = nullptr;
         viewMenu_ = nullptr;
+        themeMenu_ = nullptr;
         helpMenu_ = nullptr;
         recentMenu_ = nullptr;
     }
@@ -339,6 +343,7 @@ DocumentViewServices MainWindow::MakeServices()
     services.createPreview = []() -> std::unique_ptr<IPreviewView> {
         return CreatePreviewView(PreviewEngine::Ie);
     };
+    services.previewAssets = &previewAssets_;
     services.onOpenLink = [](const std::string& url) {
         if (!url.empty()) {
             ::ShellExecuteW(nullptr, L"open", utf8ToWide(url).c_str(), nullptr, nullptr,
@@ -424,6 +429,7 @@ void MainWindow::CreateMenuBar()
     fileMenu_ = ::CreatePopupMenu();
     editMenu_ = ::CreatePopupMenu();
     viewMenu_ = ::CreatePopupMenu();
+    themeMenu_ = ::CreatePopupMenu();
     helpMenu_ = ::CreatePopupMenu();
     recentMenu_ = ::CreatePopupMenu();
 
@@ -454,6 +460,18 @@ void MainWindow::CreateMenuBar()
                   L"切换分屏方向(&S)\tCtrl+Shift+L");
     ::AppendMenuW(viewMenu_, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(viewMenu_, MF_STRING, cmd::kViewScrollSync, L"滚动同步(&Y)");
+
+    const std::vector<theme::ThemeDefinition>& themes = theme::AllThemes();
+    for (std::size_t i = 0; i < themes.size(); ++i) {
+        const std::wstring label = utf8ToWide(themes[i].displayName);
+        ::AppendMenuW(themeMenu_, MF_STRING,
+                      static_cast<UINT_PTR>(cmd::kViewThemeBase) +
+                          static_cast<UINT_PTR>(i),
+                      label.c_str());
+    }
+    ::AppendMenuW(viewMenu_, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(viewMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(themeMenu_),
+                  L"主题(&Z)");
 
     ::AppendMenuW(helpMenu_, MF_STRING, cmd::kHelpCheckUpdates, L"检查更新(&U)...");
     ::AppendMenuW(helpMenu_, MF_SEPARATOR, 0, nullptr);
@@ -525,6 +543,18 @@ void MainWindow::UpdateMenuState()
     }
     ::CheckMenuItem(viewMenu_, cmd::kViewScrollSync,
                     MF_BYCOMMAND | (viewSettings_.scrollSync ? MF_CHECKED : MF_UNCHECKED));
+    if (themeMenu_ != nullptr) {
+        const int count = static_cast<int>(theme::AllThemes().size());
+        int index = theme::IndexOfTheme(viewSettings_.theme);
+        if (index < 0) {
+            index = 0;
+        }
+        if (count > 0) {
+            ::CheckMenuRadioItem(themeMenu_, cmd::kViewThemeBase,
+                                 cmd::kViewThemeBase + count - 1,
+                                 cmd::kViewThemeBase + index, MF_BYCOMMAND);
+        }
+    }
     ::CheckMenuRadioItem(
         viewMenu_, cmd::kViewSplitSideBySide, cmd::kViewSplitStacked,
         viewSettings_.split == ui::Orientation::Horizontal ? cmd::kViewSplitSideBySide
@@ -666,7 +696,12 @@ int MainWindow::OpenFileInternal(const std::wstring& path, bool activate, bool r
             UpdateWindowTitle();
         },
         [this](const ViewSettings& settings) {
+            // The theme is global; a view's copy may be older than the last
+            // theme switch. Preserve the active id rather than letting a
+            // splitter drag revert it.
+            const std::string themeId = viewSettings_.theme;
             viewSettings_ = settings;
+            viewSettings_.theme = themeId;
             ApplyViewSettingsToAll();
             UpdateMenuState();
         }});
@@ -679,6 +714,7 @@ int MainWindow::OpenFileInternal(const std::wstring& path, bool activate, bool r
         return -1;
     }
     view->SetViewSettings(viewSettings_);
+    view->ApplyTheme();
     views_.push_back(std::move(view));
 
     const int index = static_cast<int>(views_.size()) - 1;
@@ -1140,6 +1176,34 @@ void MainWindow::ApplyViewSettingsToAll()
     Layout();
 }
 
+void MainWindow::ApplyTheme(const theme::ThemeDefinition& definition, bool persist)
+{
+    viewSettings_.theme = definition.id;
+    theme_.setPalette(MakePalette(definition));
+
+    for (const std::unique_ptr<DocumentView>& view : views_) {
+        view->SetViewSettings(viewSettings_);
+        view->ApplyTheme();
+    }
+
+    titleBar_.SetTheme(&theme_);
+    InvalidateTitleBar();
+    tabStrip_.SetTheme(&theme_);
+    if (updateDialog_ && updateDialog_->IsWindow()) {
+        updateDialog_->SetPalette(theme_.palette());
+    }
+
+    ::RedrawWindow(m_hWnd, nullptr, nullptr,
+                   RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+    UpdateMenuState();
+
+    if (persist && settings_) {
+        // JsonFileSettings persists on set(), so the choice survives a crash
+        // even though SaveSettings only runs on exit.
+        settings_->set("ui.theme", definition.id);
+    }
+}
+
 void MainWindow::SaveSettings()
 {
     if (settings_ == nullptr) {
@@ -1176,6 +1240,7 @@ LRESULT MainWindow::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
         fileMenu_ = nullptr;
         editMenu_ = nullptr;
         viewMenu_ = nullptr;
+        themeMenu_ = nullptr;
         helpMenu_ = nullptr;
         recentMenu_ = nullptr;
     }
@@ -2021,6 +2086,17 @@ LRESULT MainWindow::OnViewScrollSync(WORD, WORD, HWND, BOOL&)
     return 0;
 }
 
+LRESULT MainWindow::OnViewTheme(WORD, WORD wID, HWND, BOOL&)
+{
+    const int index = static_cast<int>(wID) - cmd::kViewThemeBase;
+    const std::vector<theme::ThemeDefinition>& themes = theme::AllThemes();
+    if (index < 0 || index >= static_cast<int>(themes.size())) {
+        return 0;
+    }
+    ApplyTheme(themes[static_cast<std::size_t>(index)], true);
+    return 0;
+}
+
 LRESULT MainWindow::OnRecentFile(WORD, WORD wID, HWND, BOOL&)
 {
     const int index = static_cast<int>(wID) - cmd::kRecentBase;
@@ -2034,7 +2110,8 @@ LRESULT MainWindow::OnRecentFile(WORD, WORD wID, HWND, BOOL&)
 LRESULT MainWindow::OnRecentMore(WORD, WORD, HWND, BOOL&)
 {
     const std::wstring selected =
-        RecentFilesDialog::ShowModal(m_hWnd, recent_.entries(), recent_.pageSize());
+        RecentFilesDialog::ShowModal(m_hWnd, recent_.entries(), recent_.pageSize(),
+                                     theme_.palette());
     if (!selected.empty()) {
         OpenFile(selected);
     }
@@ -2107,11 +2184,13 @@ bool MainWindow::EnsureUpdateDialog()
             [this]() { DismissUpdateDialog(); },
             [this]() { InstallPreparedUpdate(); },
             [this]() { RetryPreparedDownload(); }});
+        updateDialog_->SetPalette(theme_.palette());
     }
 
     if (!updateDialog_->IsOpen() && !updateDialog_->Create(m_hWnd)) {
         return false;
     }
+    updateDialog_->SetPalette(theme_.palette());
     return true;
 }
 

@@ -19,7 +19,9 @@ public:
 
     /// Shows the dialog modally. Returns the selected path, or empty on cancel.
     static std::wstring ShowModal(HWND owner, std::vector<std::wstring> entries,
-                                  std::size_t pageSize);
+                                  std::size_t pageSize, const ui::Palette& palette);
+
+    ~RecentFilesDialog() override;
 
     BEGIN_MSG_MAP(RecentFilesDialog)
         MESSAGE_HANDLER(WM_COMMAND, OnCommand)
@@ -28,6 +30,7 @@ public:
         MESSAGE_HANDLER(WM_SIZE, OnSize)
         MESSAGE_HANDLER(WM_CLOSE, OnClose)
         MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
+        MESSAGE_HANDLER(WM_CTLCOLORSTATIC, OnCtlColorStatic)
         NOTIFY_HANDLER(kListId, NM_DBLCLK, OnListDoubleClick)
         NOTIFY_HANDLER(kListId, LVN_ITEMCHANGED, OnItemChanged)
     END_MSG_MAP()
@@ -38,7 +41,8 @@ private:
     static constexpr UINT kMoreId = 102;
     static constexpr UINT kCloseId = 103;
 
-    RecentFilesDialog(std::vector<std::wstring> entries, std::size_t pageSize);
+    RecentFilesDialog(std::vector<std::wstring> entries, std::size_t pageSize,
+                      ui::Palette palette);
 
     bool CreateModalWindow(HWND owner);
     void CreateChildren();
@@ -55,10 +59,13 @@ private:
     LRESULT OnSize(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnClose(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnDestroy(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnCtlColorStatic(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnListDoubleClick(int, LPNMHDR, BOOL&);
     LRESULT OnItemChanged(int, LPNMHDR, BOOL&);
 
     ui::Theme theme_;
+    ui::Palette palette_;
+    HBRUSH backgroundBrush_ = nullptr;
     CListViewCtrl list_;
     CStatic info_;
     CButton openButton_;

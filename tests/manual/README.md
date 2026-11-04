@@ -57,6 +57,9 @@ powershell -ExecutionPolicy Bypass -File tests/manual/tabstrip-smoke.ps1
 - 点击应用图标打开系统菜单
 - 最大化/还原后客户区等于显示器工作区（任务栏可见）、最小化/恢复、关闭按钮退出
 
+> 其中「滚动同步」一步使用真实光标点击菜单项；锁屏、RDP 断开或非交互桌面下该步骤会
+> 失败，其余步骤仍可通过。`theme-smoke.ps1` 不依赖真实鼠标。
+
 运行：
 
 ```powershell
@@ -82,3 +85,21 @@ pwsh -File tests/manual/find-smoke.ps1
 ```
 
 可选参数：`-Exe`、`-OutDir`、`-TimeoutSeconds`。输出目录中会保存查找栏和主窗口截图。
+
+## theme-smoke.ps1
+
+检查预览代码高亮与主题切换：
+
+- 预览文档运行在 IE11 文档模式（`FEATURE_BROWSER_EMULATION` 生效）
+- 内置 PrismJS 已加载，5 个围栏代码块产生 token span
+- 依次切换 GitHub Light、Ulysses、Solarized Light、One Dark、Dracula、Nord：
+  预览明暗、编辑器（Scintilla）背景、`settings.json` 中的 `ui.theme` 均正确
+- 关闭并重启后恢复上次主题
+
+脚本通过 `WM_COMMAND` 切换主题，不需要鼠标或键盘焦点，可在无人值守/锁屏桌面运行：
+
+```powershell
+pwsh -File tests/manual/theme-smoke.ps1
+```
+
+可选参数：`-Exe`、`-OutDir`、`-TimeoutSeconds`。脚本使用隔离的 `AWM_SETTINGS_DIR`。

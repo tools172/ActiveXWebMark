@@ -56,6 +56,10 @@ public:
     void initialize(UINT dpi);
     void setDpi(UINT dpi);
 
+    /// Replaces the color palette. Fonts are unaffected; controls that cache a
+    /// brush (FindBar) must be asked to re-read the theme afterwards.
+    void setPalette(const Palette& palette);
+
     UINT dpi() const { return dpi_; }
 
     /// Scales a 96-DPI logical pixel value to the current DPI.

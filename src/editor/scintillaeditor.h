@@ -33,6 +33,7 @@ public:
     void SetScrollCallback(std::function<void(int firstVisibleLine)> callback) override;
     void SetReadOnly(bool readOnly) override;
     void SetDpiScale(double scale) override;
+    void SetColorScheme(const theme::EditorScheme& scheme) override;
     void Focus() override;
     void SetChangeCallback(std::function<void()> callback) override;
 
@@ -53,6 +54,7 @@ private:
     double dpiScale_ = 1.0;
     int lineNumberWidth_ = -1;
     int lastReportedFirstLine_ = 1;
+    theme::EditorScheme scheme_;
 };
 
 } // namespace awm
