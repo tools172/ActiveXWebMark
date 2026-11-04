@@ -116,6 +116,11 @@ public:
     bool Save(std::error_code& ec);
     bool SaveAs(const std::wstring& path, std::error_code& ec);
 
+    /// Replaces the tab's content with a freshly loaded session (same file) and
+    /// re-renders, discarding the editor buffer and undo history. The caller is
+    /// responsible for prompting about unsaved changes first.
+    void Reload(std::unique_ptr<DocumentSession> session);
+
     BEGIN_MSG_MAP(DocumentView)
         MESSAGE_HANDLER(WM_SIZE, OnSize)
         MESSAGE_HANDLER(WM_TIMER, OnTimer)
@@ -177,6 +182,7 @@ private:
     int findStatus_ = 0;
     bool findBarOpen_ = false;
     bool textDirty_ = false;
+    bool suppressEditorChanges_ = false;
     bool rendered_ = false;
     bool renderScheduled_ = false;
     bool reportedDirty_ = false;

@@ -188,6 +188,9 @@ private:
     void SaveSession();
     void ActivateTab(int index);
     void CloseTab(int index);
+    /// Re-reads the tab's file from disk, prompting first when it has unsaved
+    /// edits. Does nothing for tabs that have no path yet.
+    void ReloadTab(int index);
     void CycleTab(int delta);
     /// Closes every tab at `indices` (ascending). Confirms dirty tabs first and
     /// aborts before closing anything if the user cancels. `preferredIndex` is
