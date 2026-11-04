@@ -108,6 +108,14 @@ void ScintillaEditor::HandleHostNotification(LPNMHDR header)
         if ((notification->updated & SC_UPDATE_V_SCROLL) != 0) {
             NotifyScrollIfChanged();
         }
+        if ((notification->updated &
+             (SC_UPDATE_V_SCROLL | SC_UPDATE_H_SCROLL | SC_UPDATE_CONTENT)) != 0) {
+            // Scintilla repaints its native scrollbars directly; ask the frame
+            // painter to put the theme colors back after range/position
+            // changes.
+            ::RedrawWindow(hwnd_, nullptr, nullptr,
+                           RDW_FRAME | RDW_INVALIDATE | RDW_NOCHILDREN);
+        }
         UpdateLineNumberWidth();
     } else if (header->code == SCN_PAINTED) {
         // Scintilla 4.4.6 may not deliver SCN_UPDATEUI for some scroll paths
@@ -322,16 +330,21 @@ void ScintillaEditor::UpdateLineNumberWidth()
 
 void ScintillaEditor::NotifyScrollIfChanged()
 {
-    if (!scrollCallback_) {
-        return;
-    }
-
     const int line = FirstVisibleLine();
     if (line == lastReportedFirstLine_) {
         return;
     }
     lastReportedFirstLine_ = line;
-    scrollCallback_(line);
+
+    // Native scrollbars are repainted by Scintilla/Windows on scroll; refresh
+    // our themed frame overlay after the position moved.
+    if (hwnd_ != nullptr) {
+        ::RedrawWindow(hwnd_, nullptr, nullptr,
+                       RDW_FRAME | RDW_INVALIDATE | RDW_NOCHILDREN);
+    }
+    if (scrollCallback_) {
+        scrollCallback_(line);
+    }
 }
 
 void ScintillaEditor::ApplyStyle(const std::string& source, const std::vector<StyleSpan>& spans)

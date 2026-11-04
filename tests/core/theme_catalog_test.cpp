@@ -40,6 +40,8 @@ TEST(ThemeCatalog, PreviewCssIsThemedAndIe11Safe)
         EXPECT_NE(css.find(".token.comment"), std::string::npos) << entry.id;
         EXPECT_NE(css.find(".awm-find"), std::string::npos) << entry.id;
         EXPECT_NE(css.find("pre code"), std::string::npos) << entry.id;
+        EXPECT_NE(css.find("scrollbar-face-color:"), std::string::npos) << entry.id;
+        EXPECT_NE(css.find("scrollbar-track-color:"), std::string::npos) << entry.id;
         EXPECT_EQ(css.find("var("), std::string::npos) << entry.id;
         EXPECT_EQ(css.find(":root"), std::string::npos) << entry.id;
         EXPECT_EQ(css.find("--"), std::string::npos) << entry.id;

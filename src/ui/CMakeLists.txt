@@ -3,6 +3,7 @@
 add_library(awm_ui STATIC
     theme.cpp
     doublebuffer.cpp
+    ncscrollbar.cpp
     controls/tabstrip.cpp
     controls/titlebar.cpp
     controls/splitter.cpp

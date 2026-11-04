@@ -5,6 +5,8 @@
 
 #include <uxtheme.h>
 
+#include "darkmode.h"
+#include "themeapply.h"
 #include "util/pathutil.h"
 
 namespace awm {
@@ -84,6 +86,12 @@ void RecentFilesDialog::CreateChildren()
     ListView_SetTextBkColor(list_.m_hWnd, ui::ToColorRef(theme_.palette().surface));
     ListView_SetTextColor(list_.m_hWnd, ui::ToColorRef(theme_.palette().textPrimary));
     ::SendMessageW(list_.m_hWnd, WM_SETFONT, reinterpret_cast<WPARAM>(theme_.uiFont()), TRUE);
+
+    const ColorMode mode =
+        IsDarkPalette(theme_.palette()) ? ColorMode::Dark : ColorMode::Light;
+    ApplyColorModeToWindow(m_hWnd, mode);
+    ApplyColorModeToWindow(list_.m_hWnd, mode);
+    ui::SetThemedScrollbar(list_.m_hWnd, MakeScrollbarColors(theme_.palette()));
     list_.InsertColumn(0, L"文件", LVCFMT_LEFT, theme_.px(260));
     list_.InsertColumn(1, L"位置", LVCFMT_LEFT, theme_.px(340));
 
@@ -175,6 +183,10 @@ void RecentFilesDialog::AppendRows(std::size_t begin, std::size_t end)
             const std::wstring directory = fileDirectory(entries_[i]);
             list_.SetItemText(index, 1, directory.c_str());
         }
+    }
+    if (list_.IsWindow()) {
+        ::RedrawWindow(list_.m_hWnd, nullptr, nullptr,
+                       RDW_FRAME | RDW_INVALIDATE | RDW_NOCHILDREN);
     }
 }
 

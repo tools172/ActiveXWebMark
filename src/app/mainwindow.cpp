@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <utility>
 
+#include "darkmode.h"
 #include "dialogs.h"
 #include "doublebuffer.h"
 #include "fileassociation.h"
@@ -207,7 +208,9 @@ MainWindow::MainWindow() : registry_(DocumentFormatRegistry::createDefault())
         placement_ = LoadWindowPlacement(*settings_);
         ignoredVersion_ = settings_->get("update.ignoredVersion");
     }
-    theme_.setPalette(MakePalette(theme::ResolveTheme(viewSettings_.theme)));
+    const theme::ThemeDefinition& initialTheme = theme::ResolveTheme(viewSettings_.theme);
+    theme_.setPalette(MakePalette(initialTheme));
+    SetProcessColorMode(initialTheme.dark ? ColorMode::Dark : ColorMode::Light);
     previewAssets_ = LoadPreviewAssets(::GetModuleHandleW(nullptr));
     startMaximized_ = placement_.valid && placement_.maximized;
 }
@@ -1180,6 +1183,10 @@ void MainWindow::ApplyTheme(const theme::ThemeDefinition& definition, bool persi
 {
     viewSettings_.theme = definition.id;
     theme_.setPalette(MakePalette(definition));
+    const ColorMode colorMode =
+        definition.dark ? ColorMode::Dark : ColorMode::Light;
+    SetProcessColorMode(colorMode);
+    ApplyColorModeToWindow(m_hWnd, colorMode);
 
     for (const std::unique_ptr<DocumentView>& view : views_) {
         view->SetViewSettings(viewSettings_);

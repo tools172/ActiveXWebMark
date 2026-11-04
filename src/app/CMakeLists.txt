@@ -29,6 +29,7 @@ add_executable(awm_app WIN32
     apppaths.cpp
     appsettings.cpp
     browseremulation.cpp
+    darkmode.cpp
     previewassets.cpp
     themeapply.cpp
     dialogs.cpp

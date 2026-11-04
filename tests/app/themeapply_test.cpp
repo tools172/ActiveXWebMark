@@ -45,3 +45,36 @@ TEST(ThemeApply, UsesThemeAccentForDirtyMarker)
     EXPECT_EQ(palette.dirtyDot.g, dracula.chrome.dirtyDot.g);
     EXPECT_EQ(palette.dirtyDot.b, dracula.chrome.dirtyDot.b);
 }
+
+TEST(ThemeApply, DetectsDarkPalettesForNativeControls)
+{
+    EXPECT_FALSE(IsDarkPalette(MakePalette(theme::ResolveTheme("github-light"))));
+    EXPECT_FALSE(IsDarkPalette(MakePalette(theme::ResolveTheme("ulysses"))));
+    EXPECT_FALSE(IsDarkPalette(MakePalette(theme::ResolveTheme("solarized-light"))));
+    EXPECT_TRUE(IsDarkPalette(MakePalette(theme::ResolveTheme("one-dark"))));
+    EXPECT_TRUE(IsDarkPalette(MakePalette(theme::ResolveTheme("dracula"))));
+    EXPECT_TRUE(IsDarkPalette(MakePalette(theme::ResolveTheme("nord"))));
+}
+
+TEST(ThemeApply, ScrollbarColorsFollowEachTheme)
+{
+    const ui::ScrollbarColors oneDark =
+        MakeScrollbarColors(theme::ResolveTheme("one-dark"));
+    EXPECT_EQ(oneDark.track, RGB(40, 44, 52));
+    EXPECT_EQ(oneDark.thumb, RGB(0x49, 0x4E, 0x58));
+
+    const ui::ScrollbarColors dracula =
+        MakeScrollbarColors(theme::ResolveTheme("dracula"));
+    EXPECT_EQ(dracula.track, RGB(40, 42, 54));
+    EXPECT_EQ(dracula.thumb, RGB(0x62, 0x64, 0x6B));
+
+    const ui::ScrollbarColors github =
+        MakeScrollbarColors(theme::ResolveTheme("github-light"));
+    EXPECT_EQ(github.track, RGB(255, 255, 255));
+    EXPECT_EQ(github.thumb, RGB(0xC0, 0xC1, 0xC3));
+
+    const ui::Palette palette = MakePalette(theme::ResolveTheme("one-dark"));
+    const ui::ScrollbarColors fromPalette = MakeScrollbarColors(palette);
+    EXPECT_EQ(fromPalette.track, ui::ToColorRef(palette.surface));
+    EXPECT_EQ(fromPalette.arrow, ui::ToColorRef(palette.textSecondary));
+}

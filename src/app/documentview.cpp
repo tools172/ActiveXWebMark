@@ -7,7 +7,9 @@
 #include <sstream>
 #include <utility>
 
+#include "darkmode.h"
 #include "theme/theme_catalog.h"
+#include "themeapply.h"
 
 #include "markdown/previewhtml.h"
 #include "scrollsync.h"
@@ -372,9 +374,16 @@ void DocumentView::ApplyTheme()
         findBar_.SetTheme(theme());
     }
 
+    const theme::ThemeDefinition& definition = theme::ResolveTheme(settings_.theme);
+    const ColorMode colorMode = definition.dark ? ColorMode::Dark : ColorMode::Light;
+    const ui::ScrollbarColors scrollbars = MakeScrollbarColors(definition);
     if (editor_ != nullptr) {
-        editor_->SetColorScheme(theme::ResolveTheme(settings_.theme).editor);
+        ApplyColorModeToWindow(editor_->hwnd(), colorMode);
+        ui::SetThemedScrollbar(editor_->hwnd(), scrollbars);
+        editor_->SetColorScheme(definition.editor);
     }
+    ApplyColorModeToWindow(navPanel_.treeHwnd(), colorMode);
+    ui::SetThemedScrollbar(navPanel_.treeHwnd(), scrollbars);
 
     // The preview document embeds the theme CSS, so rebuild it. Hidden tabs
     // defer this until Activate() to avoid re-rendering every open document at

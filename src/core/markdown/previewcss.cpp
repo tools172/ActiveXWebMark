@@ -109,6 +109,36 @@ std::string BuildPreviewCss(const theme::ThemeDefinition& theme)
     css += ColorToCss(preview.selectionBg);
     css += ";}";
 
+    // IE11 scrollbars are native; the legacy scrollbar-*-color properties are
+    // the only way to theme them. Apply to the document and to scrollable code
+    // blocks. Other engines simply ignore these properties.
+    const ThemeColor thumb = theme::Blend(preview.pageBg, preview.pageText, 0.28);
+    const ThemeColor track = preview.pageBg;
+    // Same arrow color as the native scrollbar painter, so the preview and the
+    // editor/nav/list scrollbars read as one control family.
+    const ThemeColor arrow = theme.chrome.textSecondary;
+    std::string scrollbars;
+    scrollbars += "scrollbar-face-color:";
+    scrollbars += ColorToCss(thumb);
+    scrollbars += ";scrollbar-track-color:";
+    scrollbars += ColorToCss(track);
+    scrollbars += ";scrollbar-arrow-color:";
+    scrollbars += ColorToCss(arrow);
+    scrollbars += ";scrollbar-shadow-color:";
+    scrollbars += ColorToCss(track);
+    scrollbars += ";scrollbar-highlight-color:";
+    scrollbars += ColorToCss(track);
+    scrollbars += ";scrollbar-3dlight-color:";
+    scrollbars += ColorToCss(track);
+    scrollbars += ";scrollbar-darkshadow-color:";
+    scrollbars += ColorToCss(track);
+    scrollbars += ";";
+    css += "html,body{";
+    css += scrollbars;
+    css += "}pre,textarea{";
+    css += scrollbars;
+    css += "}";
+
     // Preview find highlights. The find scripts only toggle these classes; no
     // inline colors are written, so dark themes stay readable.
     css += ".awm-find{background:";

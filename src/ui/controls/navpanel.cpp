@@ -104,6 +104,10 @@ void NavPanel::SetItems(std::vector<Item> items)
 
     suppressSelection_ = false;
     tree_.ShowWindow(items_.empty() ? SW_HIDE : SW_SHOW);
+    // The themed scrollbar overlay needs a frame repaint after the item range
+    // changed; the tree repaints its scrollbar directly otherwise.
+    ::RedrawWindow(tree_.m_hWnd, nullptr, nullptr,
+                   RDW_FRAME | RDW_INVALIDATE | RDW_NOCHILDREN);
     Invalidate(FALSE);
 }
 
@@ -117,6 +121,8 @@ void NavPanel::SetSelected(std::size_t index)
     TreeView_SelectItem(tree_.m_hWnd, handles_[index]);
     TreeView_EnsureVisible(tree_.m_hWnd, handles_[index]);
     suppressSelection_ = false;
+    ::RedrawWindow(tree_.m_hWnd, nullptr, nullptr,
+                   RDW_FRAME | RDW_INVALIDATE | RDW_NOCHILDREN);
 }
 
 int NavPanel::headerHeight() const
