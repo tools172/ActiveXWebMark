@@ -159,16 +159,20 @@ overlay ports（`vcpkg-ports/`）复现本机的 discount `/J`、cmark/Scintilla
 ## 发布
 
 ```powershell
-git tag v0.2.0
-git push origin v0.2.0
+# 三段式版本号，不带前缀（示例 1.2.3，实际以 CMakeLists.txt 的 project VERSION 为准）
+$Version = "<major>.<minor>.<patch>"
+git tag "v$Version"
+git push origin "v$Version"
 ```
 
 推送 tag 后 GitHub Actions 自动构建、跑测试并生成 MSI 与 Setup.exe，作为资产附在
-对应的 GitHub Release 上。tag 建议使用 `v<major>.<minor>.<patch>` 三段格式。
+对应的 GitHub Release 上。tag 统一使用 `v<major>.<minor>.<patch>` 三段格式，
+`$Version` 换成当前版本号即可，本节命令不随版本变化。
 
 发布工作流会把去掉 `v` 的 tag 版本通过 `-DAWM_VERSION` 注入程序，因此发布包的版本号
 总与 tag 一致；本地开发构建则使用 `CMakeLists.txt` 中 `project(... VERSION ...)` 的
-版本号，发布前请一并更新。
+版本号。版本号只在 `CMakeLists.txt` 这一处维护，发版时改它并打上对应 tag 即可，
+`vcpkg.json`、本文件和打包脚本都不再重复记录版本号。
 
 ## 开发协作
 
@@ -177,28 +181,31 @@ git push origin v0.2.0
 
 ## 本地生成安装包
 
-先构建程序，再用 WiX / NSIS 打包，产物输出到 `dist/`。
+先构建程序，再用 WiX / NSIS 打包，产物输出到 `dist/`。版本号无需手动输入：
+CMake 构建时会把 `CMakeLists.txt` 中 `project(... VERSION ...)` 的值写入
+`build/vs2022/version.txt`，下面直接读取该文件。
 
 ```powershell
 # 0. 构建（在 build/vs2022/src/app/Release/ 下生成 ActiveXWebMark.exe）
 cmake --build --preset vs2022 --config Release
 
-# 1. 确保输出目录存在
+# 1. 版本号由 CMake 写入构建目录（取自 CMakeLists.txt 的 project VERSION）
+$Version = (Get-Content build\vs2022\version.txt -Raw).Trim()
 New-Item -ItemType Directory -Force dist | Out-Null
 
 # 2. NSIS（安装 NSIS 后执行）
-makensis /DVERSION=0.2.0 packaging\nsis\ActiveXWebMark.nsi
+makensis "/DVERSION=$Version" packaging\nsis\ActiveXWebMark.nsi
 
-# 2. WiX（安装 WiX 后，从仓库根目录执行）
+# 3. WiX（安装 WiX 后，从仓库根目录执行）
 dotnet tool install --global wix      # 仅首次
-$env:WIX_VERSION = "0.2.0"
+$env:WIX_VERSION = $Version
 $env:AWM_EXE = (Resolve-Path "build\vs2022\src\app\Release\ActiveXWebMark.exe").Path
-wix build -o "dist\ActiveXWebMark-0.2.0.msi" packaging\wix\ActiveXWebMark.wxs
+wix build -o "dist\ActiveXWebMark-$Version.msi" packaging\wix\ActiveXWebMark.wxs
 ```
 
-产物：
-- `dist\ActiveXWebMark-0.2.0-setup.exe`（NSIS）
-- `dist\ActiveXWebMark-0.2.0.msi`（WiX）
+产物（版本号取自上面的 `$Version`，以下 `<version>` 即该值）：
+- `dist\ActiveXWebMark-<version>-setup.exe`（NSIS）
+- `dist\ActiveXWebMark-<version>.msi`（WiX）
 
 ## 许可证
 
