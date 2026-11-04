@@ -133,6 +133,8 @@ public static class AwmTabStripSmoke
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern int GetClassNameW(IntPtr hWnd, StringBuilder sb, int n);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetWindowTextW(IntPtr hWnd, StringBuilder sb, int n);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, string title);
     [DllImport("user32.dll")]
     public static extern IntPtr SendMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
@@ -255,6 +257,13 @@ function Wait-TabStrip([IntPtr]$main, [int]$timeoutSeconds) {
 
 # 读取标签栏状态：连续发送三次诊断消息，分别取 flags、firstVisible、maxFirstVisible。
 # 只返回值，不跨进程传指针，因此对 x86/x64 检测进程都安全。
+# 读取窗口标题；重新加载测试用它确认标签标题随磁盘内容更新。
+function Get-WindowTitle([IntPtr]$hwnd) {
+    $sb = New-Object System.Text.StringBuilder 512
+    [void][AwmTabStripSmoke]::GetWindowTextW($hwnd, $sb, 512)
+    return $sb.ToString()
+}
+
 function Get-StripState([IntPtr]$strip) {
     $flags = [AwmTabStripSmoke]::SendMessageW(
         $strip, $stateMessage, [IntPtr]0, [IntPtr]::Zero).ToInt64()
@@ -496,32 +505,61 @@ try {
         $hMenu = [AwmTabStripSmoke]::SendMessageW(
             $menu, 0x01E1, [IntPtr]::Zero, [IntPtr]::Zero)
         $itemCount = [AwmTabStripSmoke]::GetMenuItemCount($hMenu)
-        Check (($itemCount -eq 9)) "右键菜单包含 7 个项目与 2 条分割线"
+        Check (($itemCount -eq 11)) "右键菜单包含 8 个项目与 3 条分割线"
 
         $labels = @{}
-        foreach ($index in @(0, 1, 3, 4, 6, 7, 8)) {
+        foreach ($index in @(0, 2, 3, 5, 6, 8, 9, 10)) {
             $sb = New-Object System.Text.StringBuilder 256
             [void][AwmTabStripSmoke]::GetMenuStringW(
                 $hMenu, [uint32]$index, $sb, 256, 0x0400)
             $labels[$index] = $sb.ToString()
         }
-        Check ($labels[0] -like "关闭*") "第一项：关闭当前标签"
-        Check ($labels[1] -like "关闭其他标签*") "第二项：关闭其他标签"
-        Check ($labels[3] -like "关闭左侧标签*") "第三项：关闭左侧标签"
-        Check ($labels[4] -like "关闭右侧标签*") "第四项：关闭右侧标签"
-        Check ($labels[6] -like "在资源管理器中显示*") "在资源管理器中显示项存在"
-        Check ($labels[7] -like "复制文件路径*") "复制文件路径项存在"
-        Check ($labels[8] -like "复制文件名*") "复制文件名项存在"
+        Check ($labels[0] -like "重新加载*") "第一项：重新加载"
+        Check ($labels[2] -like "关闭*") "第三项：关闭当前标签"
+        Check ($labels[3] -like "关闭其他标签*") "第四项：关闭其他标签"
+        Check ($labels[5] -like "关闭左侧标签*") "第六项：关闭左侧标签"
+        Check ($labels[6] -like "关闭右侧标签*") "第七项：关闭右侧标签"
+        Check ($labels[8] -like "在资源管理器中显示*") "在资源管理器中显示项存在"
+        Check ($labels[9] -like "复制文件路径*") "复制文件路径项存在"
+        Check ($labels[10] -like "复制文件名*") "复制文件名项存在"
 
         # GetMenuState 返回低字节 MF_ 标志；MF_GRAYED/MF_DISABLED 非零即禁用。
-        $leftState = [AwmTabStripSmoke]::GetMenuState($hMenu, [uint32]3, 0x0400)
-        $rightState = [AwmTabStripSmoke]::GetMenuState($hMenu, [uint32]4, 0x0400)
+        $reloadState = [AwmTabStripSmoke]::GetMenuState($hMenu, [uint32]0, 0x0400)
+        $leftState = [AwmTabStripSmoke]::GetMenuState($hMenu, [uint32]5, 0x0400)
+        $rightState = [AwmTabStripSmoke]::GetMenuState($hMenu, [uint32]6, 0x0400)
+        Check (([uint32]$reloadState -band 0x03) -eq 0) "第一个标签：重新加载可用"
         Check (([uint32]$leftState -band 0x03) -ne 0) "第一个标签：关闭左侧标签已禁用"
         Check (([uint32]$rightState -band 0x03) -eq 0) "第一个标签：关闭右侧标签可用"
 
         Close-TabContextMenu $proc $menu
         Start-Sleep -Milliseconds 300
         Check ((Get-TooltipToolCount $proc) -eq $toolCount) "取消右键菜单不会关闭标签"
+
+        # 6.8 重新加载：改写磁盘上的首个文件，选中菜单第一项后窗口标题应更新。
+        $menu = Open-TabContextMenu $proc $strip
+        if ($menu -ne [IntPtr]::Zero) {
+            $marker = "Reloaded " + [guid]::NewGuid().ToString("N")
+            Set-Content -LiteralPath $files[0] -Value ("# $marker`n`nReloaded content") `
+                -Encoding utf8
+
+            # 弹出的菜单没有选中项；VK_DOWN 选中第一项（重新加载），VK_RETURN 执行。
+            [void][AwmTabStripSmoke]::PostMessageW($menu, 0x0100, [IntPtr]0x28, [IntPtr]::Zero)
+            [void][AwmTabStripSmoke]::PostMessageW($menu, 0x0101, [IntPtr]0x28, [IntPtr]::Zero)
+            [void][AwmTabStripSmoke]::PostMessageW($menu, 0x0100, [IntPtr]0x0D, [IntPtr]::Zero)
+            [void][AwmTabStripSmoke]::PostMessageW($menu, 0x0101, [IntPtr]0x0D, [IntPtr]::Zero)
+
+            $deadline = [DateTime]::UtcNow.AddSeconds(5)
+            $title = ""
+            while ([DateTime]::UtcNow -lt $deadline) {
+                Start-Sleep -Milliseconds 100
+                $title = Get-WindowTitle $main
+                if ($title -like "*$marker*") { break }
+            }
+            Check ($title -like "*$marker*") "重新加载后标签标题更新"
+            Close-TabContextMenu $proc $menu
+        } else {
+            Check $false "重新加载菜单未弹出"
+        }
     } else {
         Check $false "右键菜单未弹出"
     }

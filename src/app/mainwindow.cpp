@@ -1099,6 +1099,47 @@ void MainWindow::CloseTabsAt(std::vector<int> indices, int preferredIndex)
     ActivateTab(target);
 }
 
+void MainWindow::ReloadTab(int index)
+{
+    if (index < 0 || index >= static_cast<int>(views_.size())) {
+        return;
+    }
+
+    DocumentView& view = *views_[static_cast<std::size_t>(index)];
+    if (!view.session().hasPath()) {
+        return;
+    }
+
+    if (view.session().isDirty()) {
+        switch (AskSaveChanges(m_hWnd, view.session().title())) {
+        case SaveDecision::Save:
+            if (!SaveView(view)) {
+                return;
+            }
+            break;
+        case SaveDecision::Discard:
+            break;
+        case SaveDecision::Cancel:
+        default:
+            return;
+        }
+    }
+
+    const std::wstring path = view.session().path();
+    std::error_code ec;
+    std::unique_ptr<IDocument> document = registry_.load(path, ec);
+    if (!document) {
+        std::wstring message = L"无法重新加载文件：\n" + path;
+        if (ec) {
+            message += L"\n\n" + utf8ToWide(ec.message());
+        }
+        ShowError(m_hWnd, message);
+        return;
+    }
+
+    view.Reload(DocumentSession::fromDocument(path, *document));
+}
+
 void MainWindow::ShowTabContextMenu(int index, POINT screen)
 {
     if (index < 0 || index >= static_cast<int>(views_.size())) {
@@ -1111,7 +1152,8 @@ void MainWindow::ShowTabContextMenu(int index, POINT screen)
     const int count = static_cast<int>(views_.size());
 
     enum MenuCommand : UINT {
-        kClose = 1,
+        kReload = 1,
+        kClose,
         kCloseOthers,
         kCloseLeft,
         kCloseRight,
@@ -1126,6 +1168,8 @@ void MainWindow::ShowTabContextMenu(int index, POINT screen)
     }
 
     const UINT pathFlags = MF_STRING | (hasPath ? MF_ENABLED : MF_GRAYED);
+    ::AppendMenuW(menu, pathFlags, kReload, L"重新加载(&D)");
+    ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(menu, MF_STRING, kClose, L"关闭(&C)\tCtrl+W");
     ::AppendMenuW(menu, MF_STRING | (count > 1 ? MF_ENABLED : MF_GRAYED), kCloseOthers,
                   L"关闭其他标签(&O)");
@@ -1146,6 +1190,9 @@ void MainWindow::ShowTabContextMenu(int index, POINT screen)
     ::PostMessageW(m_hWnd, WM_NULL, 0, 0);
 
     switch (command) {
+    case kReload:
+        ReloadTab(index);
+        break;
     case kClose:
         CloseTab(index);
         break;

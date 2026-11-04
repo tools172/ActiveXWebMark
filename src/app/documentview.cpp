@@ -753,6 +753,42 @@ bool DocumentView::SaveAs(const std::wstring& path, std::error_code& ec)
     return saved;
 }
 
+void DocumentView::Reload(std::unique_ptr<DocumentSession> session)
+{
+    if (session == nullptr || session_ == nullptr || editor_ == nullptr ||
+        services_.highlighter == nullptr) {
+        return;
+    }
+
+    if (renderScheduled_) {
+        ::KillTimer(m_hWnd, kRenderTimerId);
+        renderScheduled_ = false;
+    }
+
+    const int firstVisible = editor_->FirstVisibleLine();
+
+    // SetText() emits SCN_MODIFIED, which would otherwise mark the fresh
+    // session dirty as if the user had edited it.
+    suppressEditorChanges_ = true;
+    session_ = std::move(session);
+    const std::string& source = session_->source();
+    editor_->SetText(source);
+    editor_->ApplyHighlighting(source, services_.highlighter->highlight(source));
+    suppressEditorChanges_ = false;
+
+    textDirty_ = false;
+    rendered_ = false;
+    lastHtml_.clear();
+    RenderNow();
+    editor_->SetFirstVisibleLine(firstVisible);
+
+    // The tab title comes from the first heading; it may have changed on disk.
+    reportedDirty_ = session_->isDirty();
+    if (callbacks_.onStateChanged) {
+        callbacks_.onStateChanged(*this);
+    }
+}
+
 void DocumentView::EnsurePreview()
 {
     if (preview_ != nullptr || !services_.createPreview || !IsWindow()) {
@@ -960,7 +996,7 @@ void DocumentView::RenderNow()
 
 void DocumentView::OnEditorChanged()
 {
-    if (session_ == nullptr) {
+    if (session_ == nullptr || suppressEditorChanges_) {
         return;
     }
     textDirty_ = true;

@@ -1,6 +1,5 @@
 {
   "name": "activexwebmark",
-  "version-string": "0.2.0",
   "description": "A lightweight native Win32/WTL Markdown viewer with swappable preview engine.",
   "dependencies": [
     "scintilla",

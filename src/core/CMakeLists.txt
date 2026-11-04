@@ -25,14 +25,8 @@ add_library(awm_core STATIC
     ${CMAKE_SOURCE_DIR}/third_party/peg-markdown-highlight/pmh_parser.c
 )
 
-# The release workflow passes the tag version as AWM_VERSION so a tagged build
-# always reports the released version. Local builds fall back to the project
-# version declared in the top-level CMakeLists.txt.
-if(AWM_VERSION)
-    set(AWM_VERSION_STRING "${AWM_VERSION}")
-else()
-    set(AWM_VERSION_STRING "${PROJECT_VERSION}")
-endif()
+# AWM_VERSION_STRING is computed once in the top-level CMakeLists.txt: the
+# release workflow's tag version (AWM_VERSION) or the project version.
 target_compile_definitions(awm_core PRIVATE AWM_VERSION_STRING="${AWM_VERSION_STRING}")
 
 target_include_directories(awm_core

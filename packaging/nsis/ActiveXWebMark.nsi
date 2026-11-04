@@ -1,15 +1,16 @@
 ﻿; ActiveXWebMark — NSIS installer script.
 ;
-; Build from anywhere:
-;   makensis /DVERSION=0.2.0 packaging/nsis/ActiveXWebMark.nsi
-; Output: dist\ActiveXWebMark-0.2.0-setup.exe (at the repository root)
+; Build from anywhere (VERSION comes from <build-dir>\version.txt, generated
+; by CMake from the top-level project VERSION; see README):
+;   makensis "/DVERSION=<major>.<minor>.<patch>" packaging/nsis/ActiveXWebMark.nsi
+; Output: dist\ActiveXWebMark-<major>.<minor>.<patch>-setup.exe (at the repository root)
 ;
 ; NSIS resolves relative paths against this script's directory (packaging/nsis),
 ; so "..\.." reaches the repository root. CI overrides EXE/OUTDIR with absolute
 ; paths via /DEXE and /DOUTDIR.
 
 !ifndef VERSION
-  !define VERSION "0.0.0"
+  !error "VERSION is not defined; pass /DVERSION=<major>.<minor>.<patch>"
 !endif
 
 !ifndef EXE
