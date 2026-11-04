@@ -4,6 +4,7 @@ add_library(awm_ui STATIC
     theme.cpp
     doublebuffer.cpp
     controls/tabstrip.cpp
+    controls/titlebar.cpp
     controls/splitter.cpp
     controls/navpanel.cpp
     controls/dragline.cpp

@@ -38,8 +38,33 @@ powershell -ExecutionPolicy Bypass -File tests/manual/tabstrip-smoke.ps1
 `%LOCALAPPDATA%\ActiveXWebMark\settings.json`，因此可以和已打开的 ActiveXWebMark 同时运行，
 也不会改变你的标签会话、最近文件或窗口布局。
 
-两个脚本还会设置 `AWM_DISABLE_UPDATE_CHECK=1`，关闭启动时的后台更新检测，避免更新提示
+所有冒烟脚本都会设置 `AWM_DISABLE_UPDATE_CHECK=1`，关闭启动时的后台更新检测，避免更新提示
 打扰自动化步骤。手动验证更新功能时请不要设置该变量。
+
+## titlebar-smoke.ps1
+
+检查自绘标题栏与自定义窗口框架（`MainWindow` + `ui::TitleBar`）：
+
+- 原生菜单栏已移除，`GetMenu` 返回 `NULL`；标签栏紧贴标题栏下方
+- 标题栏依次排列应用图标、文件/编辑/视图/帮助、窗口标题、最小化/最大化/关闭，
+  布局在不同 DPI 下按比例缩放
+- `WM_NCHITTEST`：菜单和按钮返回 `HTCLIENT`，空白标题区返回 `HTCAPTION`，
+  四边/四角返回缩放命中码；Windows 11 上最大化按钮返回 `HTMAXBUTTON`
+- 悬停高亮：菜单标签、最小化/最大化/关闭按钮（通过诊断消息注入，避免真实光标竞态）
+- 文件/视图下拉菜单由鼠标和 Alt+F 打开，保留原生菜单项、勾选状态与分隔线，Esc 关闭；
+  选择「滚动同步」时会短暂移动真实光标点击菜单项，随后恢复原光标位置
+- F10 → 左右方向键 → 下方向键的键盘菜单导航
+- 点击应用图标打开系统菜单
+- 最大化/还原后客户区等于显示器工作区（任务栏可见）、最小化/恢复、关闭按钮退出
+
+运行：
+
+```powershell
+pwsh -File tests/manual/titlebar-smoke.ps1
+```
+
+可选参数：`-Exe`、`-OutDir`、`-TimeoutSeconds`。脚本使用隔离的
+`AWM_SETTINGS_DIR`，不会影响真实设置或会话；截图保存到输出目录。
 
 ## find-smoke.ps1
 

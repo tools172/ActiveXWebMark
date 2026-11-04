@@ -25,11 +25,21 @@ add_executable(awm_layout_tests
     layout/geometry_test.cpp
     layout/navrows_test.cpp
     layout/scrollmap_test.cpp
+    layout/titlebar_layout_test.cpp
 )
 
 target_link_libraries(awm_layout_tests PRIVATE awm_layout GTest::gtest_main)
 
 add_test(NAME awm_layout_tests COMMAND awm_layout_tests)
+
+# GDI-level tests for owner-drawn controls (no window creation required).
+add_executable(awm_ui_tests
+    ui/titlebar_test.cpp
+)
+
+target_link_libraries(awm_ui_tests PRIVATE awm_ui GTest::gtest_main)
+
+add_test(NAME awm_ui_tests COMMAND awm_ui_tests)
 
 # Scroll synchronization policy tests (fake editor/preview, no windows).
 add_executable(awm_sync_tests

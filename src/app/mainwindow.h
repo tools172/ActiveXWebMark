@@ -14,6 +14,7 @@ extern CAppModule _Module;
 #include "appsettings.h"
 #include "commands.h"
 #include "controls/tabstrip.h"
+#include "controls/titlebar.h"
 #include "document/documentformatregistry.h"
 #include "documentview.h"
 #include "highlight/pmhhighlighter.h"
@@ -36,6 +37,10 @@ class MainWindow : public CWindowImpl<MainWindow, CWindow, CFrameWinTraits>,
 public:
     DECLARE_WND_CLASS(L"ActiveXWebMarkMainWindow")
 
+    /// Diagnostic hook used by tests/manual/titlebar-smoke.ps1. Every query
+    /// returns an integer so it works across processes without marshaling.
+    static constexpr UINT kTestTitleBarMessage = WM_APP + 0x53;
+
     MainWindow();
     ~MainWindow() override;
 
@@ -56,6 +61,19 @@ public:
         MESSAGE_HANDLER(WM_DPICHANGED, OnDpiChanged)
         MESSAGE_HANDLER(WM_INITMENUPOPUP, OnInitMenuPopup)
         MESSAGE_HANDLER(WM_TIMER, OnTimer)
+        MESSAGE_HANDLER(WM_NCCALCSIZE, OnNcCalcSize)
+        MESSAGE_HANDLER(WM_NCHITTEST, OnNcHitTest)
+        MESSAGE_HANDLER(WM_NCACTIVATE, OnNcActivate)
+        MESSAGE_HANDLER(WM_ACTIVATE, OnActivate)
+        MESSAGE_HANDLER(WM_NCLBUTTONDOWN, OnNcLButtonDown)
+        MESSAGE_HANDLER(WM_NCMOUSEMOVE, OnNcMouseMove)
+        MESSAGE_HANDLER(WM_NCMOUSELEAVE, OnNcMouseLeave)
+        MESSAGE_HANDLER(WM_MOUSEMOVE, OnMouseMove)
+        MESSAGE_HANDLER(WM_MOUSELEAVE, OnMouseLeave)
+        MESSAGE_HANDLER(WM_LBUTTONDOWN, OnLButtonDown)
+        MESSAGE_HANDLER(WM_LBUTTONUP, OnLButtonUp)
+        MESSAGE_HANDLER(WM_CAPTURECHANGED, OnCaptureChanged)
+        MESSAGE_HANDLER(kTestTitleBarMessage, OnTestTitleBarState)
         COMMAND_ID_HANDLER(cmd::kFileOpen, OnFileOpen)
         COMMAND_ID_HANDLER(cmd::kFileSave, OnFileSave)
         COMMAND_ID_HANDLER(cmd::kFileSaveAs, OnFileSaveAs)
@@ -89,6 +107,32 @@ private:
     LRESULT OnDpiChanged(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnInitMenuPopup(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnTimer(UINT, WPARAM, LPARAM, BOOL&);
+
+    // Custom title bar / frameless frame.
+    LRESULT OnNcCalcSize(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnNcHitTest(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnNcActivate(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnActivate(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnNcLButtonDown(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnNcMouseMove(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnNcMouseLeave(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnMouseMove(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnMouseLeave(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnLButtonDown(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnLButtonUp(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnCaptureChanged(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnTestTitleBarState(UINT, WPARAM, LPARAM, BOOL&);
+
+    void ShowTitleMenu(int index);
+    void ShowSystemMenu();
+    void HandleTitleBarEvent(const ui::TitleBarEvent& event);
+    void EnterMenuMode(bool highlightFirst);
+    void ExitMenuMode();
+    bool HandleMenuKey(MSG* message);
+    void UpdateTitleBarLayout();
+    void InvalidateTitleBar();
+    int TitleBarHeight() const;
+    int ResizeBorderThickness() const;
 
     LRESULT OnFileOpen(WORD, WORD, HWND, BOOL&);
     LRESULT OnFileSave(WORD, WORD, HWND, BOOL&);
@@ -165,7 +209,14 @@ private:
     RecentFiles recent_;
 
     ui::Theme theme_;
+    ui::TitleBar titleBar_;
     ui::TabStrip tabStrip_;
+    HICON appSmallIcon_ = nullptr;
+    std::vector<HMENU> titleMenus_;
+    bool titleBarMenuMode_ = false;
+    int titleBarMenuHighlight_ = -1;
+    bool titleBarTrackingMouse_ = false;
+    bool titleBarActive_ = true;
     std::vector<std::unique_ptr<DocumentView>> views_;
     int activeIndex_ = -1;
     ViewSettings viewSettings_;

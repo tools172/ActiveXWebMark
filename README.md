@@ -22,8 +22,10 @@
   预览中高亮，F3 / Shift+F3 在匹配项之间跳转并自动回绕。
 - **完整保存流程**：Ctrl+S 保存、Ctrl+Shift+S 另存为；编辑后标签显示脏标记，
   关闭标签或退出时提供“保存/不保存/取消”选择。写入采用临时文件原子替换。
-- **精致浅色界面**：自绘现代标签栏、分割条与导航面板，细边框、悬停反馈、DPI 缩放；
-  原生控件启用 Common Controls v6 与 Explorer 主题，编辑器/预览配色统一。
+- **精致浅色界面**：自绘标题栏与窗口按钮，菜单与标题合并到标题栏一行（图标 →
+  菜单 → 标题 → 最小化/最大化/关闭），标签栏位于其下；自绘现代标签栏、分割条与
+  导航面板，细边框、悬停反馈、DPI 缩放；原生控件启用 Common Controls v6 与
+  Explorer 主题，编辑器/预览配色统一。
 - **安全预览**：相对图片与链接通过 `<base>` 正确解析；外部链接交给系统浏览器打开，
   预览不会被导航走；页面内 `#锚点` 链接在预览内滚动。
 - **在线更新**：启动后后台检测一次 GitHub Releases 是否有新版本，发现后提示
@@ -46,6 +48,8 @@
 | `Esc` | 关闭查找栏 |
 | `Ctrl+B` | 显示/隐藏右侧导航目录 |
 | `Ctrl+Shift+L`（或 `Ctrl+Alt+L`） | 切换左右/上下分屏 |
+| `Alt` / `F10` | 进入标题栏菜单导航；方向键选择，Enter/↓ 打开，Esc 退出 |
+| `Alt` + 菜单字母 | 直接打开对应菜单（如 `Alt+F` 文件、`Alt+V` 视图） |
 | `F1` | 关于 ActiveXWebMark（名称、版本、构建配置、技术栈） |
 
 滚动同步可在“视图 → 滚动同步”中开关，默认开启。
@@ -61,13 +65,13 @@ GDI+ 自绘 · WinHTTP（更新检查与下载） · CMake · vcpkg（manifest �
 third_party/   vcpkg 之外的头文件/源码库（WTL、PEG Markdown Highlight）
 src/core/      纯 C++ 核心：文档模型 / 会话状态 / Markdown 引擎 / 高亮 / 设置 / 最近文件
 src/core/update/  GitHub Release 解析与版本比较
-src/layout/    纯几何库：分屏、导航、标签布局与 TOC 层级（无 Windows 依赖，可单测）
-src/ui/        可复用自绘控件：Theme / TabStrip / Splitter / NavPanel
+src/layout/    纯几何库：分屏、导航、标签/标题栏布局与 TOC 层级（无 Windows 依赖，可单测）
+src/ui/        可复用自绘控件：Theme / TitleBar / TabStrip / Splitter / NavPanel
 src/editor/    编辑器抽象 + Scintilla 实现
 src/preview/   预览抽象 + IE 实现（插件式，未来可加 WebView2 / Miniblink / litehtml）
 src/app/       WTL 主程序：MainWindow / DocumentView / 菜单 / 对话框 / 持久化
 src/app/update/  更新检查、下载与安装程序启动
-tests/         GoogleTest 单元测试（core + layout）
+tests/         GoogleTest 单元测试（core + layout + ui）与手动冒烟脚本
 ```
 
 模块依赖：`awm_core` ← `awm_layout` ← `awm_ui` ← `awm_app`；
