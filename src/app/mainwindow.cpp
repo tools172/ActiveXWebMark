@@ -56,6 +56,29 @@ std::wstring menuLabelForRecent(const std::wstring& path, std::size_t index)
     return label;
 }
 
+const wchar_t* familyLabel(theme::ThemeFamily family)
+{
+    switch (family) {
+    case theme::ThemeFamily::Neutral:
+        return L"中性灰";
+    case theme::ThemeFamily::Blue:
+        return L"蓝色系";
+    case theme::ThemeFamily::Cyan:
+        return L"青色系";
+    case theme::ThemeFamily::Green:
+        return L"绿色系";
+    case theme::ThemeFamily::Warm:
+        return L"暖色系";
+    case theme::ThemeFamily::RedPink:
+        return L"红粉系";
+    case theme::ThemeFamily::Purple:
+        return L"紫罗兰";
+    case theme::ThemeFamily::Multicolor:
+        return L"多彩霓虹";
+    }
+    return L"其他";
+}
+
 void copyTextToClipboard(HWND owner, const std::wstring& text)
 {
     if (text.empty() || !::OpenClipboard(owner)) {
@@ -229,6 +252,7 @@ MainWindow::~MainWindow()
         editMenu_ = nullptr;
         viewMenu_ = nullptr;
         themeMenu_ = nullptr;
+        themeMenuGroups_.clear();
         helpMenu_ = nullptr;
         recentMenu_ = nullptr;
     }
@@ -464,14 +488,7 @@ void MainWindow::CreateMenuBar()
     ::AppendMenuW(viewMenu_, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(viewMenu_, MF_STRING, cmd::kViewScrollSync, L"滚动同步(&Y)");
 
-    const std::vector<theme::ThemeDefinition>& themes = theme::AllThemes();
-    for (std::size_t i = 0; i < themes.size(); ++i) {
-        const std::wstring label = utf8ToWide(themes[i].displayName);
-        ::AppendMenuW(themeMenu_, MF_STRING,
-                      static_cast<UINT_PTR>(cmd::kViewThemeBase) +
-                          static_cast<UINT_PTR>(i),
-                      label.c_str());
-    }
+    BuildThemeMenu();
     ::AppendMenuW(viewMenu_, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(viewMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(themeMenu_),
                   L"主题(&Z)");
@@ -499,6 +516,103 @@ void MainWindow::CreateMenuBar()
         titleMenus_.push_back(::GetSubMenu(mainMenu_, i));
     }
     titleBar_.SetMenus(std::move(labels));
+}
+
+void MainWindow::AppendThemeGroup(HMENU parent, const std::wstring& label,
+                                  const std::vector<int>& indices)
+{
+    HMENU menu = ::CreatePopupMenu();
+    if (menu == nullptr) {
+        return;
+    }
+
+    const std::vector<theme::ThemeDefinition>& themes = theme::AllThemes();
+    for (int index : indices) {
+        if (index < 0 || static_cast<std::size_t>(index) >= themes.size()) {
+            continue;
+        }
+        const std::wstring item = escapeMenuText(utf8ToWide(themes[index].displayName));
+        ::AppendMenuW(menu, MF_STRING,
+                      static_cast<UINT_PTR>(cmd::kViewThemeBase) +
+                          static_cast<UINT_PTR>(index),
+                      item.c_str());
+    }
+
+    themeMenuGroups_.push_back(ThemeMenuGroup{menu, indices});
+    ::AppendMenuW(parent, MF_POPUP, reinterpret_cast<UINT_PTR>(menu), label.c_str());
+}
+
+void MainWindow::BuildThemeMenu()
+{
+    themeMenuGroups_.clear();
+
+    AppendThemeGroup(themeMenu_, L"浅色主题(&L)", theme::LightThemeIndices());
+    AppendThemeGroup(themeMenu_, L"深色主题(&D)", theme::DarkThemeIndices());
+    ::AppendMenuW(themeMenu_, MF_SEPARATOR, 0, nullptr);
+
+    HMENU byAuthor = ::CreatePopupMenu();
+    if (byAuthor != nullptr) {
+        for (const theme::ThemeGroup& group : theme::ThemesGroupedByAuthor()) {
+            AppendThemeGroup(byAuthor, escapeMenuText(utf8ToWide(group.label)),
+                             group.indices);
+        }
+        ::AppendMenuW(themeMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(byAuthor),
+                      L"按作者/来源(&S)");
+    }
+
+    HMENU byFamily = ::CreatePopupMenu();
+    if (byFamily != nullptr) {
+        for (const theme::FamilyThemeGroup& group : theme::ThemesGroupedByFamily()) {
+            AppendThemeGroup(byFamily, familyLabel(group.family), group.indices);
+        }
+        ::AppendMenuW(themeMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(byFamily),
+                      L"按色系(&C)");
+    }
+}
+
+void MainWindow::UpdateThemeMenuChecks()
+{
+    const std::vector<theme::ThemeDefinition>& themes = theme::AllThemes();
+    int current = theme::IndexOfTheme(viewSettings_.theme);
+    if (current < 0 || static_cast<std::size_t>(current) >= themes.size()) {
+        current = 0;
+    }
+    const UINT checkId = static_cast<UINT>(cmd::kViewThemeBase + current);
+
+    for (const ThemeMenuGroup& group : themeMenuGroups_) {
+        if (group.menu == nullptr || group.indices.empty()) {
+            continue;
+        }
+
+        bool containsCurrent = false;
+        for (int index : group.indices) {
+            if (index == current) {
+                containsCurrent = true;
+                break;
+            }
+        }
+
+        // Clear every item first: a submenu that no longer contains the current
+        // theme may still carry a check from a previous selection.
+        for (int index : group.indices) {
+            ::CheckMenuItem(group.menu,
+                            static_cast<UINT>(cmd::kViewThemeBase + index),
+                            MF_BYCOMMAND | MF_UNCHECKED);
+        }
+
+        if (containsCurrent) {
+            // first/last must be items that actually exist in this submenu; a
+            // global range would fail on narrow author/family lists.
+            const auto bounds =
+                std::minmax_element(group.indices.begin(), group.indices.end());
+            const UINT first =
+                static_cast<UINT>(cmd::kViewThemeBase + *bounds.first);
+            const UINT last =
+                static_cast<UINT>(cmd::kViewThemeBase + *bounds.second);
+            ::CheckMenuRadioItem(group.menu, first, last, checkId, MF_BYCOMMAND);
+            ::CheckMenuItem(group.menu, checkId, MF_BYCOMMAND | MF_CHECKED);
+        }
+    }
 }
 
 void MainWindow::RebuildRecentMenu()
@@ -547,16 +661,7 @@ void MainWindow::UpdateMenuState()
     ::CheckMenuItem(viewMenu_, cmd::kViewScrollSync,
                     MF_BYCOMMAND | (viewSettings_.scrollSync ? MF_CHECKED : MF_UNCHECKED));
     if (themeMenu_ != nullptr) {
-        const int count = static_cast<int>(theme::AllThemes().size());
-        int index = theme::IndexOfTheme(viewSettings_.theme);
-        if (index < 0) {
-            index = 0;
-        }
-        if (count > 0) {
-            ::CheckMenuRadioItem(themeMenu_, cmd::kViewThemeBase,
-                                 cmd::kViewThemeBase + count - 1,
-                                 cmd::kViewThemeBase + index, MF_BYCOMMAND);
-        }
+        UpdateThemeMenuChecks();
     }
     ::CheckMenuRadioItem(
         viewMenu_, cmd::kViewSplitSideBySide, cmd::kViewSplitStacked,
@@ -1248,6 +1353,7 @@ LRESULT MainWindow::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
         editMenu_ = nullptr;
         viewMenu_ = nullptr;
         themeMenu_ = nullptr;
+        themeMenuGroups_.clear();
         helpMenu_ = nullptr;
         recentMenu_ = nullptr;
     }

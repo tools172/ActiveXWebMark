@@ -24,9 +24,9 @@
   关闭标签或退出时提供“保存/不保存/取消”选择。写入采用临时文件原子替换。
 - **代码高亮与主题**：预览中的围栏代码块由内置 PrismJS 1.29 高亮（cpp/c/c#/java/go/
   python/js/ts/jsx/tsx/json/yaml/ini/bash/powershell/sql/rust/markdown/diff/docker/
-  html/css 等）；内置 6 套主题（GitHub Light、Ulysses、Solarized Light、One Dark、
-  Dracula、Nord），一次切换同时作用于预览、编辑器和自绘主窗口界面，选择会持久化。
-  主题菜单位于“视图 → 主题”。
+  html/css 等）；内置 53 套主题，一次切换同时作用于预览、编辑器和自绘主窗口界面，
+  选择会持久化。主题菜单按“浅色/深色”“按作者/来源”“按色系”三种方式分类，
+  完整目录见 [docs/themes.md](docs/themes.md)。
 - **主题化滚动条**：预览文档/代码块以及编辑器、导航树、最近文件列表的竖直/水平
   滚动条都按主题的轨道、滑块、箭头颜色绘制；原生滚动条保留系统交互行为。
 - **精致界面与主题**：自绘标题栏与窗口按钮，菜单与标题合并到标题栏一行（图标 →
@@ -67,7 +67,9 @@ C++17 · WTL 10 · Scintilla · cmark（CommonMark） · discount · IE/MSHTML �
 PrismJS 1.29（代码高亮，MIT） · GDI+ 自绘 · WinHTTP（更新检查与下载） · CMake ·
 vcpkg（manifest 模式） · GoogleTest
 
-主题配色参考 [MarkText](https://github.com/marktext/marktext)（MIT）。
+主题配色参考 [MarkText](https://github.com/marktext/marktext)（MIT）与
+[VS Code](https://github.com/microsoft/vscode)（MIT）；作者归属与出处见
+[docs/themes.md](docs/themes.md)。
 
 ## 浏览器兼容性
 
@@ -126,7 +128,8 @@ ctest --preset vs2022
 
 - 最近打开的文件列表；
 - 编辑器/导航显隐、分屏方向与比例、导航宽度；
-- 主题（`ui.theme`，如 `github-light`、`one-dark`、`dracula` 等）；
+- 主题（`ui.theme`，如 `github-light`、`catppuccin-mocha`、`tokyo-night`、
+  `vscode-dark-plus`、`github-dark` 等，完整列表见 `docs/themes.md`）；
 - 窗口位置与最大化状态；
 - 被“忽略此版本”的更新版本号（`update.ignoredVersion`）。
 

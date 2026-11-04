@@ -92,8 +92,10 @@ pwsh -File tests/manual/find-smoke.ps1
 
 - 预览文档运行在 IE11 文档模式（`FEATURE_BROWSER_EMULATION` 生效）
 - 内置 PrismJS 已加载，5 个围栏代码块产生 token span
-- 依次切换 GitHub Light、Ulysses、Solarized Light、One Dark、Dracula、Nord：
+- 依次切换原有 6 个主题和代表性新主题（Tokyo Night Light、Ayu Dark、
+  Catppuccin Mocha、VS Code Light High Contrast、GitHub Dark）：
   预览明暗、编辑器（Scintilla）背景、`settings.json` 中的 `ui.theme` 均正确
+- 主题菜单按“浅色/深色、按作者/来源、按色系”分组；完整 53 个主题由单元测试覆盖
 - 关闭并重启后恢复上次主题
 
 脚本通过 `WM_COMMAND` 切换主题，不需要鼠标或键盘焦点，可在无人值守/锁屏桌面运行：

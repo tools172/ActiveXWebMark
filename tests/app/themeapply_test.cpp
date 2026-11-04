@@ -1,9 +1,15 @@
 #include <gtest/gtest.h>
 
+#include "commands.h"
 #include "theme/theme_catalog.h"
 #include "themeapply.h"
 
 using namespace awm;
+
+TEST(ThemeApply, CatalogFitsCommandIdRange)
+{
+    EXPECT_LE(theme::AllThemes().size(), static_cast<std::size_t>(cmd::kViewThemeMax));
+}
 
 TEST(ThemeApply, GithubLightMatchesTheBuiltInLightPalette)
 {
@@ -54,6 +60,14 @@ TEST(ThemeApply, DetectsDarkPalettesForNativeControls)
     EXPECT_TRUE(IsDarkPalette(MakePalette(theme::ResolveTheme("one-dark"))));
     EXPECT_TRUE(IsDarkPalette(MakePalette(theme::ResolveTheme("dracula"))));
     EXPECT_TRUE(IsDarkPalette(MakePalette(theme::ResolveTheme("nord"))));
+}
+
+TEST(ThemeApply, EveryThemeMatchesItsDarkFlag)
+{
+    for (const theme::ThemeDefinition& definition : theme::AllThemes()) {
+        EXPECT_EQ(IsDarkPalette(MakePalette(definition)), definition.dark)
+            << definition.id;
+    }
 }
 
 TEST(ThemeApply, ScrollbarColorsFollowEachTheme)

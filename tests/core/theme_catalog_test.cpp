@@ -8,19 +8,99 @@
 
 using namespace awm;
 
-TEST(ThemeCatalog, HasSixUniqueThemesAndGithubDefault)
+TEST(ThemeCatalog, HasAllThemesAndGithubDefault)
 {
     const auto& themes = theme::AllThemes();
-    ASSERT_EQ(themes.size(), 6u);
+    ASSERT_EQ(themes.size(), 53u);
 
     std::set<std::string> ids;
+    std::set<std::string> names;
     for (const theme::ThemeDefinition& entry : themes) {
         EXPECT_FALSE(std::string(entry.id).empty());
         EXPECT_TRUE(ids.insert(entry.id).second) << "duplicate id " << entry.id;
+        EXPECT_TRUE(names.insert(entry.displayName).second)
+            << "duplicate display name " << entry.displayName;
+        EXPECT_NE(entry.author, nullptr);
+        EXPECT_FALSE(std::string(entry.author).empty()) << entry.id;
     }
 
     EXPECT_EQ(std::string(theme::DefaultTheme().id), "github-light");
     EXPECT_EQ(std::string(theme::kDefaultThemeId), "github-light");
+}
+
+TEST(ThemeCatalog, DarkFlagAndTokenColorsAreConsistent)
+{
+    for (const theme::ThemeDefinition& entry : theme::AllThemes()) {
+        const bool backgroundIsDark =
+            theme::RelativeLuminance(entry.preview.pageBg) < 0.5;
+        EXPECT_EQ(entry.dark, backgroundIsDark) << entry.id;
+
+        const theme::TokenColors& tokens = entry.tokens;
+        const theme::ThemeColor* all[] = {
+            &tokens.comment,       &tokens.punctuation, &tokens.tag,
+            &tokens.property,      &tokens.booleanNumber, &tokens.string,
+            &tokens.oper,          &tokens.function,    &tokens.keyword,
+            &tokens.regex,
+        };
+        for (const theme::ThemeColor* color : all) {
+            EXPECT_EQ(color->a, 255) << entry.id;
+        }
+    }
+}
+
+TEST(ThemeCatalog, GroupingCoversEveryThemeExactlyOnce)
+{
+    const auto& themes = theme::AllThemes();
+    std::set<int> seen;
+
+    const std::vector<int> light = theme::LightThemeIndices();
+    const std::vector<int> dark = theme::DarkThemeIndices();
+    EXPECT_EQ(light.size() + dark.size(), themes.size());
+    for (int index : light) {
+        EXPECT_TRUE(seen.insert(index).second);
+    }
+    for (int index : dark) {
+        EXPECT_TRUE(seen.insert(index).second);
+    }
+    EXPECT_EQ(seen.size(), themes.size());
+
+    seen.clear();
+    const std::vector<theme::ThemeGroup> authorGroups = theme::ThemesGroupedByAuthor();
+    ASSERT_GE(authorGroups.size(), 2u);
+    EXPECT_EQ(authorGroups[0].label, "GitHub");
+    EXPECT_EQ(authorGroups[1].label, "Microsoft");
+    for (const theme::ThemeGroup& group : authorGroups) {
+        EXPECT_FALSE(group.label.empty());
+        EXPECT_FALSE(group.indices.empty());
+        for (int index : group.indices) {
+            EXPECT_TRUE(seen.insert(index).second) << group.label;
+        }
+    }
+    EXPECT_EQ(seen.size(), themes.size());
+
+    seen.clear();
+    const std::vector<theme::FamilyThemeGroup> familyGroups =
+        theme::ThemesGroupedByFamily();
+    ASSERT_FALSE(familyGroups.empty());
+    for (std::size_t i = 1; i < familyGroups.size(); ++i) {
+        EXPECT_LT(static_cast<int>(familyGroups[i - 1].family),
+                  static_cast<int>(familyGroups[i].family));
+    }
+    for (const theme::FamilyThemeGroup& group : familyGroups) {
+        EXPECT_FALSE(group.indices.empty());
+        for (int index : group.indices) {
+            EXPECT_TRUE(seen.insert(index).second);
+        }
+    }
+    EXPECT_EQ(seen.size(), themes.size());
+}
+
+TEST(ThemeCatalog, RepresentativeThemesExist)
+{
+    for (const char* id : {"ayu-dark", "catppuccin-mocha", "tokyo-night-light",
+                           "vscode-high-contrast-light", "github-dark"}) {
+        EXPECT_GE(theme::IndexOfTheme(id), 6) << id;
+    }
 }
 
 TEST(ThemeCatalog, ResolvesUnknownIdsToDefault)

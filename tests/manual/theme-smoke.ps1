@@ -272,12 +272,19 @@ try {
     Write-Host "  first pid=$($proc.Id) main=$main doc=$documentView"
 
     $themes = @(
-        [pscustomobject]@{ Id = "github-light";     Index = 0; Dark = 0; Bg = @(255, 255, 255) },
-        [pscustomobject]@{ Id = "ulysses";          Index = 1; Dark = 0; Bg = @(243, 243, 243) },
-        [pscustomobject]@{ Id = "solarized-light";  Index = 2; Dark = 0; Bg = @(253, 246, 227) },
-        [pscustomobject]@{ Id = "one-dark";         Index = 3; Dark = 1; Bg = @(40, 44, 52) },
-        [pscustomobject]@{ Id = "dracula";          Index = 4; Dark = 1; Bg = @(40, 42, 54) },
-        [pscustomobject]@{ Id = "nord";             Index = 5; Dark = 1; Bg = @(46, 52, 64) }
+        [pscustomobject]@{ Id = "github-light";     Index = 0;  Dark = 0; Bg = @(255, 255, 255) },
+        [pscustomobject]@{ Id = "ulysses";          Index = 1;  Dark = 0; Bg = @(243, 243, 243) },
+        [pscustomobject]@{ Id = "solarized-light";  Index = 2;  Dark = 0; Bg = @(253, 246, 227) },
+        [pscustomobject]@{ Id = "one-dark";         Index = 3;  Dark = 1; Bg = @(40, 44, 52) },
+        [pscustomobject]@{ Id = "dracula";          Index = 4;  Dark = 1; Bg = @(40, 42, 54) },
+        [pscustomobject]@{ Id = "nord";             Index = 5;  Dark = 1; Bg = @(46, 52, 64) },
+        # Representative themes from the generated catalog. The full catalog
+        # is covered by the unit tests; rendering all 53 here is too slow.
+        [pscustomobject]@{ Id = "tokyo-night-light"; Index = 13; Dark = 0; Bg = @(213, 214, 219) },
+        [pscustomobject]@{ Id = "ayu-dark";          Index = 14; Dark = 1; Bg = @(10, 14, 20) },
+        [pscustomobject]@{ Id = "catppuccin-mocha";  Index = 16; Dark = 1; Bg = @(30, 30, 46) },
+        [pscustomobject]@{ Id = "vscode-high-contrast-light"; Index = 43; Dark = 0; Bg = @(255, 255, 255) },
+        [pscustomobject]@{ Id = "github-dark";       Index = 51; Dark = 1; Bg = @(13, 17, 23) }
     )
 
     $settingsPath = Join-Path $settingsDir "settings.json"

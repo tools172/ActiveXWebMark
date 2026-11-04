@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <limits>
 
 namespace awm::theme {
 
@@ -38,6 +40,8 @@ struct ThemeSpec {
     ThemeColor findCurrentBg;
     ThemeColor findText;
     TokenColors tokens;
+    const char* author = "";
+    ThemeFamily family = ThemeFamily::Neutral;
 };
 
 EditorScheme DeriveEditor(const PreviewColors& preview, const ChromeColors& chrome)
@@ -67,16 +71,37 @@ EditorScheme DeriveEditor(const PreviewColors& preview, const ChromeColors& chro
     return editor;
 }
 
+/// Returns an opaque color at least `minRatio` away from `bg`. Imported theme
+/// files are authored for their own renderer and occasionally land just below
+/// WCAG AA after alpha flattening; this nudges only those colors.
+ThemeColor EnsureContrast(ThemeColor fg, const ThemeColor& bg, double minRatio)
+{
+    fg.a = 255;
+    if (ContrastRatio(fg, bg) >= minRatio) {
+        return fg;
+    }
+    const ThemeColor toward = RelativeLuminance(bg) > 0.5 ? Rgb(0, 0, 0) : Rgb(255, 255, 255);
+    for (int step = 1; step <= 100; ++step) {
+        const ThemeColor candidate = Blend(fg, toward, static_cast<double>(step) / 100.0);
+        if (ContrastRatio(candidate, bg) >= minRatio) {
+            return candidate;
+        }
+    }
+    return toward;
+}
+
 ThemeDefinition BuildTheme(const ThemeSpec& spec)
 {
     ThemeDefinition theme;
     theme.id = spec.id;
     theme.displayName = spec.name;
     theme.dark = spec.dark;
+    theme.author = spec.author;
+    theme.family = spec.family;
 
     PreviewColors& preview = theme.preview;
     preview.pageBg = spec.pageBg;
-    preview.pageText = Over(spec.editorColor80, spec.pageBg);
+    preview.pageText = EnsureContrast(Over(spec.editorColor80, spec.pageBg), spec.pageBg, 4.0);
     preview.mutedText = Over(spec.editorColor50, spec.pageBg);
     preview.border = Over(spec.editorColor10, spec.pageBg);
     preview.link = spec.link;
@@ -94,9 +119,11 @@ ThemeDefinition BuildTheme(const ThemeSpec& spec)
     preview.em = Over(spec.em, spec.pageBg);
     preview.listMarker = spec.listMarker;
     preview.selectionBg = Over(spec.selectionColor, spec.pageBg);
-    preview.findMatchBg = spec.findMatchBg;
-    preview.findCurrentBg = spec.findCurrentBg;
-    preview.findText = spec.findText;
+    preview.findMatchBg = Over(spec.findMatchBg, spec.pageBg);
+    preview.findCurrentBg = Over(spec.findCurrentBg, spec.pageBg);
+    preview.findText = ContrastRatio(spec.findText, preview.findMatchBg) >= 4.5
+                           ? spec.findText
+                           : EnsureContrast(preview.pageText, preview.findMatchBg, 4.5);
     for (int i = 0; i < 6; ++i) {
         preview.headings[i] = spec.headings[i];
     }
@@ -177,6 +204,8 @@ ThemeDefinition GithubLight()
         Rgb(255, 183, 77),  // findCurrent
         Rgb(31, 35, 40),    // findText
         GithubTokens(),
+        "GitHub",
+        ThemeFamily::Blue,
     };
 
     ThemeDefinition theme = BuildTheme(spec);
@@ -263,6 +292,8 @@ ThemeDefinition Ulysses()
                     Rgb(199, 89, 145), Rgb(122, 112, 186), Rgb(26, 159, 127),
                     Rgb(112, 128, 144), Rgb(209, 106, 61), Rgb(12, 139, 186),
                     Rgb(199, 89, 145)},
+        "Ran Luo（MarkText）",
+        ThemeFamily::Cyan,
     });
 }
 
@@ -301,6 +332,8 @@ ThemeDefinition SolarizedLight()
                     Rgb(38, 139, 210), Rgb(211, 54, 130), Rgb(42, 161, 152),
                     Rgb(203, 75, 22), Rgb(181, 137, 0), Rgb(133, 153, 0),
                     Rgb(203, 75, 22)},
+        "Ethan Schoonover",
+        ThemeFamily::Blue,
     });
 }
 
@@ -339,6 +372,8 @@ ThemeDefinition OneDark()
                     Rgb(209, 154, 102), Rgb(209, 154, 102), Rgb(152, 195, 121),
                     Rgb(86, 182, 194), Rgb(97, 175, 239), Rgb(198, 120, 221),
                     Rgb(198, 120, 221)},
+        "Atom（GitHub）",
+        ThemeFamily::Blue,
     });
 }
 
@@ -377,6 +412,8 @@ ThemeDefinition Dracula()
                     Rgb(255, 121, 198), Rgb(189, 147, 249), Rgb(80, 250, 123),
                     Rgb(248, 248, 242), Rgb(241, 250, 140), Rgb(255, 121, 198),
                     Rgb(255, 184, 108)},
+        "Dracula Theme",
+        ThemeFamily::Purple,
     });
 }
 
@@ -415,16 +452,25 @@ ThemeDefinition Nord()
                     Rgb(129, 161, 193), Rgb(180, 142, 173), Rgb(163, 190, 140),
                     Rgb(129, 161, 193), Rgb(136, 192, 208), Rgb(129, 161, 193),
                     Rgb(235, 203, 139)},
+        "Arctic Ice Studio",
+        ThemeFamily::Blue,
     });
 }
+
+#include "theme/theme_catalog_generated.inc"
 
 } // namespace
 
 const std::vector<ThemeDefinition>& AllThemes()
 {
-    static const std::vector<ThemeDefinition> themes = {
-        GithubLight(), Ulysses(), SolarizedLight(), OneDark(), Dracula(), Nord(),
-    };
+    static const std::vector<ThemeDefinition> themes = [] {
+        std::vector<ThemeDefinition> result{
+            GithubLight(), Ulysses(), SolarizedLight(), OneDark(), Dracula(), Nord(),
+        };
+        result.reserve(53);
+        AppendGeneratedThemes(result);
+        return result;
+    }();
     return themes;
 }
 
@@ -460,6 +506,143 @@ int IndexOfTheme(std::string_view id)
         }
     }
     return -1;
+}
+
+namespace {
+
+const char* const kAuthorOrder[] = {
+    "GitHub",
+    "Microsoft",
+    "Atom（GitHub）",
+    "Ran Luo（MarkText）",
+    "Ethan Schoonover",
+    "Catppuccin",
+    "Dracula Theme",
+    "Arctic Ice Studio",
+    "Rosé Pine",
+    "Monokai（Wimer Hazenberg）",
+    "Mattia Astorino（equinusocio）",
+    "Dempfi（Ayu）",
+    "Enkia（Tokyo Night）",
+    "Pavel Pertsev（morhetz）",
+    "Sainnhe（Everforest）",
+    "Rebelot（Kanagawa）",
+    "Nyoom Engineering（IBM Carbon）",
+    "Jonathan Olaleye",
+    "EdenEast",
+    "Scott McKendry",
+    "Robb Owen",
+    "Jan T. Sott",
+    "Chris Kempson",
+    "Ian Beck（One Crayon）",
+    "Ofer Reichman",
+    "1ClickComputing",
+};
+
+int AuthorRank(std::string_view author)
+{
+    const int count = static_cast<int>(sizeof(kAuthorOrder) / sizeof(kAuthorOrder[0]));
+    for (int i = 0; i < count; ++i) {
+        if (author == kAuthorOrder[i]) {
+            return i;
+        }
+    }
+    return std::numeric_limits<int>::max();
+}
+
+char AsciiLower(char c)
+{
+    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+}
+
+bool AsciiLess(std::string_view a, std::string_view b)
+{
+    const std::size_t count = std::min(a.size(), b.size());
+    for (std::size_t i = 0; i < count; ++i) {
+        const char left = AsciiLower(a[i]);
+        const char right = AsciiLower(b[i]);
+        if (left != right) {
+            return left < right;
+        }
+    }
+    return a.size() < b.size();
+}
+
+} // namespace
+
+std::vector<int> LightThemeIndices()
+{
+    std::vector<int> result;
+    const std::vector<ThemeDefinition>& themes = AllThemes();
+    for (std::size_t i = 0; i < themes.size(); ++i) {
+        if (!themes[i].dark) {
+            result.push_back(static_cast<int>(i));
+        }
+    }
+    return result;
+}
+
+std::vector<int> DarkThemeIndices()
+{
+    std::vector<int> result;
+    const std::vector<ThemeDefinition>& themes = AllThemes();
+    for (std::size_t i = 0; i < themes.size(); ++i) {
+        if (themes[i].dark) {
+            result.push_back(static_cast<int>(i));
+        }
+    }
+    return result;
+}
+
+std::vector<ThemeGroup> ThemesGroupedByAuthor()
+{
+    std::vector<ThemeGroup> groups;
+    const std::vector<ThemeDefinition>& themes = AllThemes();
+    for (std::size_t i = 0; i < themes.size(); ++i) {
+        const char* author = themes[i].author != nullptr ? themes[i].author : "";
+        auto it = std::find_if(groups.begin(), groups.end(), [author](const ThemeGroup& group) {
+            return group.label == author;
+        });
+        if (it == groups.end()) {
+            groups.push_back(ThemeGroup{author, {}});
+            it = groups.end() - 1;
+        }
+        it->indices.push_back(static_cast<int>(i));
+    }
+
+    std::sort(groups.begin(), groups.end(), [](const ThemeGroup& a, const ThemeGroup& b) {
+        const int rankA = AuthorRank(a.label);
+        const int rankB = AuthorRank(b.label);
+        if (rankA != rankB) {
+            return rankA < rankB;
+        }
+        return AsciiLess(a.label, b.label);
+    });
+    return groups;
+}
+
+std::vector<FamilyThemeGroup> ThemesGroupedByFamily()
+{
+    constexpr ThemeFamily kFamilyOrder[] = {
+        ThemeFamily::Neutral, ThemeFamily::Blue,  ThemeFamily::Cyan, ThemeFamily::Green,
+        ThemeFamily::Warm,    ThemeFamily::RedPink, ThemeFamily::Purple,
+        ThemeFamily::Multicolor,
+    };
+
+    std::vector<FamilyThemeGroup> groups;
+    const std::vector<ThemeDefinition>& themes = AllThemes();
+    for (ThemeFamily family : kFamilyOrder) {
+        FamilyThemeGroup group{family, {}};
+        for (std::size_t i = 0; i < themes.size(); ++i) {
+            if (themes[i].family == family) {
+                group.indices.push_back(static_cast<int>(i));
+            }
+        }
+        if (!group.indices.empty()) {
+            groups.push_back(group);
+        }
+    }
+    return groups;
 }
 
 std::string ColorToCss(const ThemeColor& color)

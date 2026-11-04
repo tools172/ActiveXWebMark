@@ -177,6 +177,11 @@ private:
     DocumentViewServices MakeServices();
     void SendCommand(int id);
 
+    struct ThemeMenuGroup {
+        HMENU menu = nullptr;
+        std::vector<int> indices;
+    };
+
     int FindTabByPath(const std::wstring& path) const;
     int OpenFileInternal(const std::wstring& path, bool activate, bool reportErrors = true);
     void RestoreSession();
@@ -203,6 +208,10 @@ private:
     void UpdateWindowTitle();
     void UpdateMenuState();
     void CreateMenuBar();
+    void BuildThemeMenu();
+    void AppendThemeGroup(HMENU parent, const std::wstring& label,
+                          const std::vector<int>& indices);
+    void UpdateThemeMenuChecks();
     void RebuildRecentMenu();
     void Layout();
     void PaintWelcome(HDC dc, const RECT& client);
@@ -235,6 +244,7 @@ private:
     HMENU editMenu_ = nullptr;
     HMENU viewMenu_ = nullptr;
     HMENU themeMenu_ = nullptr;
+    std::vector<ThemeMenuGroup> themeMenuGroups_;
     HMENU helpMenu_ = nullptr;
     HMENU recentMenu_ = nullptr;
 

@@ -117,6 +117,19 @@ struct EditorScheme {
     ThemeColor caret;
 };
 
+/// Coarse color-family classification used by the "按色系" menu. The value is
+/// curated per theme; it is not derived at runtime.
+enum class ThemeFamily {
+    Neutral,
+    Blue,
+    Cyan,
+    Green,
+    Warm,
+    RedPink,
+    Purple,
+    Multicolor,
+};
+
 struct ThemeDefinition {
     const char* id = "";
     const char* displayName = "";
@@ -125,6 +138,23 @@ struct ThemeDefinition {
     PreviewColors preview;
     TokenColors tokens;
     EditorScheme editor;
+    /// Original author or organization (not the project the values were
+    /// imported from).
+    const char* author = "";
+    ThemeFamily family = ThemeFamily::Neutral;
+};
+
+/// Themes grouped by a display label, in catalog-index order. Used by the
+/// "按作者/来源" menu.
+struct ThemeGroup {
+    std::string label;
+    std::vector<int> indices;
+};
+
+/// Themes grouped by color family, in family-enum order.
+struct FamilyThemeGroup {
+    ThemeFamily family;
+    std::vector<int> indices;
 };
 
 inline constexpr const char* kDefaultThemeId = "github-light";
@@ -134,6 +164,18 @@ const ThemeDefinition& DefaultTheme();
 const ThemeDefinition* FindTheme(std::string_view id);
 const ThemeDefinition& ResolveTheme(const std::string& id);
 int IndexOfTheme(std::string_view id);
+
+/// Catalog indices for the light/dark menu lists, in catalog order.
+std::vector<int> LightThemeIndices();
+std::vector<int> DarkThemeIndices();
+
+/// Author groups in the curated display order (unknown authors follow
+/// alphabetically); each group's indices are ascending.
+std::vector<ThemeGroup> ThemesGroupedByAuthor();
+
+/// Non-empty color-family groups in ThemeFamily order; each group's indices
+/// are ascending.
+std::vector<FamilyThemeGroup> ThemesGroupedByFamily();
 
 /// Formats a color for the preview stylesheet: `#rrggbb`, or `rgba(...)` when
 /// the alpha channel is not fully opaque.
