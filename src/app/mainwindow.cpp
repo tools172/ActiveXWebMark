@@ -12,6 +12,7 @@
 
 #include "dialogs.h"
 #include "doublebuffer.h"
+#include "fileassociation.h"
 #include "filedialogs.h"
 #include "recentfilesdialog.h"
 #include "resource.h"
@@ -348,6 +349,10 @@ LRESULT MainWindow::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
     Layout();
     RestoreSession();
 
+    // A portable copy has no installer to write the association keys; this is
+    // a no-op when the per-machine registration is already present.
+    ensureFileAssociationsRegistered();
+
     if (!updateChecksDisabled()) {
         ::SetTimer(m_hWnd, kStartupUpdateTimer, kStartupUpdateDelayMs, nullptr);
     }
@@ -375,6 +380,9 @@ void MainWindow::CreateMenuBar()
     ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileSaveAs, L"另存为(&A)...\tCtrl+Shift+S");
     ::AppendMenuW(fileMenu_, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileCloseTab, L"关闭标签(&W)\tCtrl+W");
+    ::AppendMenuW(fileMenu_, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileSetDefault,
+                  L"设为 Markdown 默认打开方式(&D)...");
     ::AppendMenuW(fileMenu_, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileExit, L"退出(&X)");
 
@@ -1283,6 +1291,23 @@ LRESULT MainWindow::OnFileCloseTab(WORD, WORD, HWND, BOOL&)
 LRESULT MainWindow::OnFileExit(WORD, WORD, HWND, BOOL&)
 {
     ::SendMessageW(m_hWnd, WM_CLOSE, 0, 0);
+    return 0;
+}
+
+LRESULT MainWindow::OnFileSetDefault(WORD, WORD, HWND, BOOL&)
+{
+    if (!ensureFileAssociationsRegistered()) {
+        ShowError(m_hWnd, L"无法写入文件关联注册表，请检查当前用户的注册表权限。");
+        return 0;
+    }
+
+    // Windows 10 ignores programmatic default-app changes, so the user has to
+    // confirm the choice in the system settings page.
+    openDefaultAppsSettings();
+    ShowInfo(m_hWnd,
+             L"已将 ActiveXWebMark 登记为 Markdown 文件的打开方式。\n\n"
+             L"Windows 不允许程序自动修改默认应用。请在打开的“默认应用”设置页中，"
+             L"将 .md 文件的默认程序选择为 ActiveXWebMark。");
     return 0;
 }
 

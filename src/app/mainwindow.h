@@ -61,6 +61,7 @@ public:
         COMMAND_ID_HANDLER(cmd::kFileSaveAs, OnFileSaveAs)
         COMMAND_ID_HANDLER(cmd::kFileCloseTab, OnFileCloseTab)
         COMMAND_ID_HANDLER(cmd::kFileExit, OnFileExit)
+        COMMAND_ID_HANDLER(cmd::kFileSetDefault, OnFileSetDefault)
         COMMAND_ID_HANDLER(cmd::kViewEditor, OnViewEditor)
         COMMAND_ID_HANDLER(cmd::kViewNav, OnViewNav)
         COMMAND_ID_HANDLER(cmd::kViewSplitSideBySide, OnViewSplitSideBySide)
@@ -94,6 +95,7 @@ private:
     LRESULT OnFileSaveAs(WORD, WORD, HWND, BOOL&);
     LRESULT OnFileCloseTab(WORD, WORD, HWND, BOOL&);
     LRESULT OnFileExit(WORD, WORD, HWND, BOOL&);
+    LRESULT OnFileSetDefault(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewEditor(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewNav(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewSplitSideBySide(WORD, WORD, HWND, BOOL&);

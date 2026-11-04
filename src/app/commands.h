@@ -8,6 +8,7 @@ constexpr int kFileSave = 1002;
 constexpr int kFileSaveAs = 1003;
 constexpr int kFileCloseTab = 1004;
 constexpr int kFileExit = 1005;
+constexpr int kFileSetDefault = 1006;
 
 // View commands.
 constexpr int kViewEditor = 1010;

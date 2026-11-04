@@ -26,6 +26,12 @@
 
     <MediaTemplate EmbedCab="yes" />
 
+    <!-- Icon shown in Settings > Apps / Programs and Features. -->
+    <!-- SourceFile is resolved against the working directory: run wix build
+         from the repository root (as the CI release workflow does). -->
+    <Icon Id="AppIcon" SourceFile="src\app\resources\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="ActiveXWebMark" />
     </StandardDirectory>
@@ -75,10 +81,73 @@
       </Component>
     </ComponentGroup>
 
+    <!--
+      Markdown file association. Registers the application as a candidate
+      handler; Windows 10 does not let an installer force the default, the
+      user confirms it in Settings > Default apps. Windows Installer removes
+      these values again on uninstall.
+    -->
+    <ComponentGroup Id="AssociationComponents" Directory="INSTALLFOLDER">
+      <Component Id="MarkdownAssociations" Guid="*" Bitness="always64">
+        <RegistryKey Root="HKLM" Key="Software\Classes\ActiveXWebMark.Markdown">
+          <RegistryValue Type="string" Value="Markdown 文档" KeyPath="yes" />
+          <RegistryValue Name="FriendlyTypeName" Type="string" Value="Markdown 文档" />
+          <RegistryValue Key="DefaultIcon" Type="string"
+                         Value="[INSTALLFOLDER]ActiveXWebMark.exe,0" />
+          <RegistryValue Key="shell\open" Name="MultiSelectModel" Type="string"
+                         Value="Player" />
+          <RegistryValue Key="shell\open\command" Type="string"
+                         Value="&quot;[INSTALLFOLDER]ActiveXWebMark.exe&quot; &quot;%1&quot;" />
+        </RegistryKey>
+
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\ActiveXWebMark.exe">
+          <RegistryValue Name="FriendlyAppName" Type="string" Value="ActiveXWebMark" />
+          <RegistryValue Name="ApplicationCompany" Type="string" Value="ActiveXWebMark" />
+          <RegistryValue Key="DefaultIcon" Type="string"
+                         Value="[INSTALLFOLDER]ActiveXWebMark.exe,0" />
+          <RegistryValue Key="shell\open" Name="MultiSelectModel" Type="string"
+                         Value="Player" />
+          <RegistryValue Key="shell\open\command" Type="string"
+                         Value="&quot;[INSTALLFOLDER]ActiveXWebMark.exe&quot; &quot;%1&quot;" />
+          <RegistryValue Key="SupportedTypes" Name=".md" Type="string" Value="" />
+          <RegistryValue Key="SupportedTypes" Name=".markdown" Type="string" Value="" />
+          <RegistryValue Key="SupportedTypes" Name=".mdown" Type="string" Value="" />
+        </RegistryKey>
+
+        <RegistryKey Root="HKLM" Key="Software\ActiveXWebMark\Capabilities">
+          <RegistryValue Name="ApplicationName" Type="string" Value="ActiveXWebMark" />
+          <RegistryValue Name="ApplicationDescription" Type="string"
+                         Value="Markdown 阅读与编辑" />
+          <RegistryValue Key="FileAssociations" Name=".md" Type="string"
+                         Value="ActiveXWebMark.Markdown" />
+          <RegistryValue Key="FileAssociations" Name=".markdown" Type="string"
+                         Value="ActiveXWebMark.Markdown" />
+          <RegistryValue Key="FileAssociations" Name=".mdown" Type="string"
+                         Value="ActiveXWebMark.Markdown" />
+        </RegistryKey>
+
+        <RegistryKey Root="HKLM" Key="Software\RegisteredApplications">
+          <RegistryValue Name="ActiveXWebMark" Type="string"
+                         Value="Software\ActiveXWebMark\Capabilities" />
+        </RegistryKey>
+
+        <RegistryKey Root="HKLM" Key="Software\Classes\.md\OpenWithProgids">
+          <RegistryValue Name="ActiveXWebMark.Markdown" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.markdown\OpenWithProgids">
+          <RegistryValue Name="ActiveXWebMark.Markdown" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.mdown\OpenWithProgids">
+          <RegistryValue Name="ActiveXWebMark.Markdown" Type="string" Value="" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+
     <Feature Id="MainFeature" Title="ActiveXWebMark" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
       <ComponentGroupRef Id="StartMenuShortcutComponents" />
       <ComponentGroupRef Id="DesktopShortcutComponents" />
+      <ComponentGroupRef Id="AssociationComponents" />
     </Feature>
   </Package>
 </Wix>

@@ -20,6 +20,7 @@ add_executable(awm_app WIN32
     apppaths.cpp
     appsettings.cpp
     dialogs.cpp
+    fileassociation.cpp
     filedialogs.cpp
     recentfilesdialog.cpp
     update/updateclient.cpp
@@ -41,6 +42,7 @@ target_link_libraries(awm_app PRIVATE
     awm_preview
     awm_ui
     awm_sync
+    advapi32
     comdlg32
     shell32
     shlwapi

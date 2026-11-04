@@ -23,6 +23,8 @@
 !define PRODUCT_NAME "ActiveXWebMark"
 !define EXE_NAME "ActiveXWebMark.exe"
 !define PUBLISHER "ActiveXWebMark"
+!define PROGID "ActiveXWebMark.Markdown"
+!define APP_KEY "Software\${PRODUCT_NAME}"
 
 Unicode true
 
@@ -52,6 +54,11 @@ RequestExecutionLevel admin
 
 ; --- Install -------------------------------------------------------------
 Section "Install" SEC01
+  ; 64-bit application: write the 64-bit registry view. A 32-bit installer
+  ; would otherwise put the association keys under Wow6432Node, where the
+  ; 64-bit Explorer never looks.
+  SetRegView 64
+
   SetOutPath "$INSTDIR"
   File "${EXE}"
   WriteUninstaller "$INSTDIR\uninstall.exe"
@@ -62,9 +69,41 @@ Section "Install" SEC01
 
   WriteRegStr HKLM "Software\${PRODUCT_NAME}" "InstallDir" "$INSTDIR"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" "DisplayName" "${PRODUCT_NAME}"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" "DisplayIcon" "$INSTDIR\${EXE_NAME},0"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" "Publisher" "${PUBLISHER}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}" "UninstallString" '"$INSTDIR\uninstall.exe"'
+
+  ; Markdown file association. Registers the application as a candidate
+  ; handler; Windows 10 does not let an installer force the default, the user
+  ; confirms it in Settings > Default apps.
+  WriteRegStr HKLM "Software\Classes\${PROGID}" "" "Markdown 文档"
+  WriteRegStr HKLM "Software\Classes\${PROGID}" "FriendlyTypeName" "Markdown 文档"
+  WriteRegStr HKLM "Software\Classes\${PROGID}\DefaultIcon" "" "$INSTDIR\${EXE_NAME},0"
+  WriteRegStr HKLM "Software\Classes\${PROGID}\shell\open\command" "" '"$INSTDIR\${EXE_NAME}" "%1"'
+  WriteRegStr HKLM "Software\Classes\${PROGID}\shell\open" "MultiSelectModel" "Player"
+
+  WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}" "FriendlyAppName" "${PRODUCT_NAME}"
+  WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}" "ApplicationCompany" "${PUBLISHER}"
+  WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}\DefaultIcon" "" "$INSTDIR\${EXE_NAME},0"
+  WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}\shell\open" "MultiSelectModel" "Player"
+  WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}\shell\open\command" "" '"$INSTDIR\${EXE_NAME}" "%1"'
+  WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}\SupportedTypes" ".md" ""
+  WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}\SupportedTypes" ".markdown" ""
+  WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}\SupportedTypes" ".mdown" ""
+
+  WriteRegStr HKLM "${APP_KEY}\Capabilities" "ApplicationName" "${PRODUCT_NAME}"
+  WriteRegStr HKLM "${APP_KEY}\Capabilities" "ApplicationDescription" "Markdown 阅读与编辑"
+  WriteRegStr HKLM "${APP_KEY}\Capabilities\FileAssociations" ".md" "${PROGID}"
+  WriteRegStr HKLM "${APP_KEY}\Capabilities\FileAssociations" ".markdown" "${PROGID}"
+  WriteRegStr HKLM "${APP_KEY}\Capabilities\FileAssociations" ".mdown" "${PROGID}"
+  WriteRegStr HKLM "Software\RegisteredApplications" "${PRODUCT_NAME}" "${APP_KEY}\Capabilities"
+
+  WriteRegStr HKLM "Software\Classes\.md\OpenWithProgids" "${PROGID}" ""
+  WriteRegStr HKLM "Software\Classes\.markdown\OpenWithProgids" "${PROGID}" ""
+  WriteRegStr HKLM "Software\Classes\.mdown\OpenWithProgids" "${PROGID}" ""
+
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
 
   ; Non-fatal warning if the VC++ runtime is missing.
   IfFileExists "$WINDIR\SysNative\vcruntime140.dll" have_crt no_crt
@@ -77,6 +116,8 @@ SectionEnd
 
 ; --- Uninstall -----------------------------------------------------------
 Section "Uninstall"
+  SetRegView 64
+
   Delete "$INSTDIR\${EXE_NAME}"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
@@ -87,4 +128,15 @@ Section "Uninstall"
 
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
   DeleteRegKey HKLM "Software\${PRODUCT_NAME}"
+
+  ; Remove only our own association entries; other applications may share
+  ; OpenWithProgids, and .md itself belongs to the system.
+  DeleteRegKey HKLM "Software\Classes\${PROGID}"
+  DeleteRegKey HKLM "Software\Classes\Applications\${EXE_NAME}"
+  DeleteRegValue HKLM "Software\RegisteredApplications" "${PRODUCT_NAME}"
+  DeleteRegValue HKLM "Software\Classes\.md\OpenWithProgids" "${PROGID}"
+  DeleteRegValue HKLM "Software\Classes\.markdown\OpenWithProgids" "${PROGID}"
+  DeleteRegValue HKLM "Software\Classes\.mdown\OpenWithProgids" "${PROGID}"
+
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
 SectionEnd
