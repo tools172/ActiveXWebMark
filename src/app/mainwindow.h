@@ -14,13 +14,16 @@ extern CAppModule _Module;
 #include "appsettings.h"
 #include "commands.h"
 #include "controls/tabstrip.h"
+#include "controls/titlebar.h"
 #include "document/documentformatregistry.h"
 #include "documentview.h"
 #include "highlight/pmhhighlighter.h"
 #include "history/recent_files.h"
 #include "markdown/cmarkengine.h"
+#include "previewassets.h"
 #include "settings/isettings.h"
 #include "theme.h"
+#include "theme/theme_catalog.h"
 #include "update/updateservice.h"
 #include "viewstate.h"
 
@@ -35,6 +38,10 @@ class MainWindow : public CWindowImpl<MainWindow, CWindow, CFrameWinTraits>,
 {
 public:
     DECLARE_WND_CLASS(L"ActiveXWebMarkMainWindow")
+
+    /// Diagnostic hook used by tests/manual/titlebar-smoke.ps1. Every query
+    /// returns an integer so it works across processes without marshaling.
+    static constexpr UINT kTestTitleBarMessage = WM_APP + 0x53;
 
     MainWindow();
     ~MainWindow() override;
@@ -56,17 +63,33 @@ public:
         MESSAGE_HANDLER(WM_DPICHANGED, OnDpiChanged)
         MESSAGE_HANDLER(WM_INITMENUPOPUP, OnInitMenuPopup)
         MESSAGE_HANDLER(WM_TIMER, OnTimer)
+        MESSAGE_HANDLER(WM_NCCALCSIZE, OnNcCalcSize)
+        MESSAGE_HANDLER(WM_NCHITTEST, OnNcHitTest)
+        MESSAGE_HANDLER(WM_NCACTIVATE, OnNcActivate)
+        MESSAGE_HANDLER(WM_ACTIVATE, OnActivate)
+        MESSAGE_HANDLER(WM_NCLBUTTONDOWN, OnNcLButtonDown)
+        MESSAGE_HANDLER(WM_NCMOUSEMOVE, OnNcMouseMove)
+        MESSAGE_HANDLER(WM_NCMOUSELEAVE, OnNcMouseLeave)
+        MESSAGE_HANDLER(WM_MOUSEMOVE, OnMouseMove)
+        MESSAGE_HANDLER(WM_MOUSELEAVE, OnMouseLeave)
+        MESSAGE_HANDLER(WM_LBUTTONDOWN, OnLButtonDown)
+        MESSAGE_HANDLER(WM_LBUTTONUP, OnLButtonUp)
+        MESSAGE_HANDLER(WM_CAPTURECHANGED, OnCaptureChanged)
+        MESSAGE_HANDLER(kTestTitleBarMessage, OnTestTitleBarState)
         COMMAND_ID_HANDLER(cmd::kFileOpen, OnFileOpen)
         COMMAND_ID_HANDLER(cmd::kFileSave, OnFileSave)
         COMMAND_ID_HANDLER(cmd::kFileSaveAs, OnFileSaveAs)
         COMMAND_ID_HANDLER(cmd::kFileCloseTab, OnFileCloseTab)
         COMMAND_ID_HANDLER(cmd::kFileExit, OnFileExit)
+        COMMAND_ID_HANDLER(cmd::kFileSetDefault, OnFileSetDefault)
         COMMAND_ID_HANDLER(cmd::kViewEditor, OnViewEditor)
         COMMAND_ID_HANDLER(cmd::kViewNav, OnViewNav)
         COMMAND_ID_HANDLER(cmd::kViewSplitSideBySide, OnViewSplitSideBySide)
         COMMAND_ID_HANDLER(cmd::kViewSplitStacked, OnViewSplitStacked)
         COMMAND_ID_HANDLER(cmd::kViewToggleSplit, OnViewToggleSplit)
         COMMAND_ID_HANDLER(cmd::kViewScrollSync, OnViewScrollSync)
+        COMMAND_RANGE_HANDLER(cmd::kViewThemeBase,
+                              cmd::kViewThemeBase + cmd::kViewThemeMax - 1, OnViewTheme)
         COMMAND_ID_HANDLER(cmd::kEditFind, OnEditFind)
         COMMAND_ID_HANDLER(cmd::kEditFindNext, OnEditFindNext)
         COMMAND_ID_HANDLER(cmd::kEditFindPrevious, OnEditFindPrevious)
@@ -89,17 +112,45 @@ private:
     LRESULT OnInitMenuPopup(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnTimer(UINT, WPARAM, LPARAM, BOOL&);
 
+    // Custom title bar / frameless frame.
+    LRESULT OnNcCalcSize(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnNcHitTest(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnNcActivate(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnActivate(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnNcLButtonDown(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnNcMouseMove(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnNcMouseLeave(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnMouseMove(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnMouseLeave(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnLButtonDown(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnLButtonUp(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnCaptureChanged(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnTestTitleBarState(UINT, WPARAM, LPARAM, BOOL&);
+
+    void ShowTitleMenu(int index);
+    void ShowSystemMenu();
+    void HandleTitleBarEvent(const ui::TitleBarEvent& event);
+    void EnterMenuMode(bool highlightFirst);
+    void ExitMenuMode();
+    bool HandleMenuKey(MSG* message);
+    void UpdateTitleBarLayout();
+    void InvalidateTitleBar();
+    int TitleBarHeight() const;
+    int ResizeBorderThickness() const;
+
     LRESULT OnFileOpen(WORD, WORD, HWND, BOOL&);
     LRESULT OnFileSave(WORD, WORD, HWND, BOOL&);
     LRESULT OnFileSaveAs(WORD, WORD, HWND, BOOL&);
     LRESULT OnFileCloseTab(WORD, WORD, HWND, BOOL&);
     LRESULT OnFileExit(WORD, WORD, HWND, BOOL&);
+    LRESULT OnFileSetDefault(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewEditor(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewNav(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewSplitSideBySide(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewSplitStacked(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewToggleSplit(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewScrollSync(WORD, WORD, HWND, BOOL&);
+    LRESULT OnViewTheme(WORD, WORD, HWND, BOOL&);
     LRESULT OnEditFind(WORD, WORD, HWND, BOOL&);
     LRESULT OnEditFindNext(WORD, WORD, HWND, BOOL&);
     LRESULT OnEditFindPrevious(WORD, WORD, HWND, BOOL&);
@@ -126,6 +177,11 @@ private:
     DocumentViewServices MakeServices();
     void SendCommand(int id);
 
+    struct ThemeMenuGroup {
+        HMENU menu = nullptr;
+        std::vector<int> indices;
+    };
+
     int FindTabByPath(const std::wstring& path) const;
     int OpenFileInternal(const std::wstring& path, bool activate, bool reportErrors = true);
     void RestoreSession();
@@ -147,10 +203,15 @@ private:
     bool SaveActiveAs();
 
     void ApplyViewSettingsToAll();
+    void ApplyTheme(const theme::ThemeDefinition& definition, bool persist);
     void UpdateTabStrip();
     void UpdateWindowTitle();
     void UpdateMenuState();
     void CreateMenuBar();
+    void BuildThemeMenu();
+    void AppendThemeGroup(HMENU parent, const std::wstring& label,
+                          const std::vector<int>& indices);
+    void UpdateThemeMenuChecks();
     void RebuildRecentMenu();
     void Layout();
     void PaintWelcome(HDC dc, const RECT& client);
@@ -162,8 +223,18 @@ private:
     std::unique_ptr<ISettings> settings_;
     RecentFiles recent_;
 
+    // Declared before the views so it outlives their DocumentViewServices.
+    PreviewAssets previewAssets_;
+
     ui::Theme theme_;
+    ui::TitleBar titleBar_;
     ui::TabStrip tabStrip_;
+    HICON appSmallIcon_ = nullptr;
+    std::vector<HMENU> titleMenus_;
+    bool titleBarMenuMode_ = false;
+    int titleBarMenuHighlight_ = -1;
+    bool titleBarTrackingMouse_ = false;
+    bool titleBarActive_ = true;
     std::vector<std::unique_ptr<DocumentView>> views_;
     int activeIndex_ = -1;
     ViewSettings viewSettings_;
@@ -172,6 +243,8 @@ private:
     HMENU fileMenu_ = nullptr;
     HMENU editMenu_ = nullptr;
     HMENU viewMenu_ = nullptr;
+    HMENU themeMenu_ = nullptr;
+    std::vector<ThemeMenuGroup> themeMenuGroups_;
     HMENU helpMenu_ = nullptr;
     HMENU recentMenu_ = nullptr;
 

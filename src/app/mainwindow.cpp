@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 
 #include <shellapi.h>
+#include <windowsx.h>
 
 #include "apppaths.h"
 
@@ -10,12 +11,15 @@
 #include <filesystem>
 #include <utility>
 
+#include "darkmode.h"
 #include "dialogs.h"
 #include "doublebuffer.h"
+#include "fileassociation.h"
 #include "filedialogs.h"
 #include "recentfilesdialog.h"
 #include "resource.h"
 #include "scintillaeditor.h"
+#include "themeapply.h"
 #include "update/updatedialog.h"
 #include "util/pathutil.h"
 #include "util/stringutil.h"
@@ -50,6 +54,29 @@ std::wstring menuLabelForRecent(const std::wstring& path, std::size_t index)
         label = label.substr(0, 87) + L"…";
     }
     return label;
+}
+
+const wchar_t* familyLabel(theme::ThemeFamily family)
+{
+    switch (family) {
+    case theme::ThemeFamily::Neutral:
+        return L"中性灰";
+    case theme::ThemeFamily::Blue:
+        return L"蓝色系";
+    case theme::ThemeFamily::Cyan:
+        return L"青色系";
+    case theme::ThemeFamily::Green:
+        return L"绿色系";
+    case theme::ThemeFamily::Warm:
+        return L"暖色系";
+    case theme::ThemeFamily::RedPink:
+        return L"红粉系";
+    case theme::ThemeFamily::Purple:
+        return L"紫罗兰";
+    case theme::ThemeFamily::Multicolor:
+        return L"多彩霓虹";
+    }
+    return L"其他";
 }
 
 void copyTextToClipboard(HWND owner, const std::wstring& text)
@@ -109,6 +136,49 @@ bool endsWithNoCase(const std::wstring& text, const wchar_t* suffix)
            ::_wcsicmp(text.c_str() + text.size() - length, suffix) == 0;
 }
 
+/// Windows 11 supports Snap Layouts when WM_NCHITTEST returns HTMAXBUTTON.
+/// RtlGetVersion is used instead of GetVersionEx so the result ignores the
+/// executable's compatibility manifest.
+bool isWindows11OrGreater()
+{
+    static const bool value = []() {
+        using RtlGetVersionFn = LONG(WINAPI*)(OSVERSIONINFOW*);
+        const HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll");
+        const auto rtlGetVersion = reinterpret_cast<RtlGetVersionFn>(
+            ntdll != nullptr ? ::GetProcAddress(ntdll, "RtlGetVersion") : nullptr);
+        if (rtlGetVersion == nullptr) {
+            return false;
+        }
+        OSVERSIONINFOW info = {};
+        info.dwOSVersionInfoSize = sizeof(info);
+        if (rtlGetVersion(&info) != 0) {
+            return false;
+        }
+        return info.dwMajorVersion > 10 ||
+               (info.dwMajorVersion == 10 && info.dwBuildNumber >= 22000);
+    }();
+    return value;
+}
+
+/// Maps a title bar hit to the cursor/non-client code used by WM_NCHITTEST.
+int titleBarHitToNcCode(ui::TitleBarHit hit)
+{
+    switch (hit) {
+    case ui::TitleBarHit::Caption:
+        return HTCAPTION;
+    case ui::TitleBarHit::Maximize:
+        // On Windows 11 this enables the Snap Layouts flyout on hover.
+        return isWindows11OrGreater() ? HTMAXBUTTON : HTCLIENT;
+    case ui::TitleBarHit::Menu:
+    case ui::TitleBarHit::Icon:
+    case ui::TitleBarHit::Minimize:
+    case ui::TitleBarHit::Close:
+        return HTCLIENT;
+    default:
+        return HTCLIENT;
+    }
+}
+
 /// Builds a safe local file name for a release asset.
 std::wstring installerFileName(const ReleaseAsset& asset, const ReleaseInfo& release)
 {
@@ -161,6 +231,10 @@ MainWindow::MainWindow() : registry_(DocumentFormatRegistry::createDefault())
         placement_ = LoadWindowPlacement(*settings_);
         ignoredVersion_ = settings_->get("update.ignoredVersion");
     }
+    const theme::ThemeDefinition& initialTheme = theme::ResolveTheme(viewSettings_.theme);
+    theme_.setPalette(MakePalette(initialTheme));
+    SetProcessColorMode(initialTheme.dark ? ColorMode::Dark : ColorMode::Light);
+    previewAssets_ = LoadPreviewAssets(::GetModuleHandleW(nullptr));
     startMaximized_ = placement_.valid && placement_.maximized;
 }
 
@@ -177,6 +251,8 @@ MainWindow::~MainWindow()
         fileMenu_ = nullptr;
         editMenu_ = nullptr;
         viewMenu_ = nullptr;
+        themeMenu_ = nullptr;
+        themeMenuGroups_.clear();
         helpMenu_ = nullptr;
         recentMenu_ = nullptr;
     }
@@ -194,6 +270,11 @@ BOOL MainWindow::PreTranslateMessage(MSG* pMsg)
 
     if (pMsg->message == WM_KEYDOWN && pMsg->wParam == VK_F1) {
         SendCommand(cmd::kHelpAbout);
+        return TRUE;
+    }
+
+    // Alt / F10 top-level menu navigation (the native menu bar is gone).
+    if (HandleMenuKey(pMsg)) {
         return TRUE;
     }
 
@@ -289,6 +370,7 @@ DocumentViewServices MainWindow::MakeServices()
     services.createPreview = []() -> std::unique_ptr<IPreviewView> {
         return CreatePreviewView(PreviewEngine::Ie);
     };
+    services.previewAssets = &previewAssets_;
     services.onOpenLink = [](const std::string& url) {
         if (!url.empty()) {
             ::ShellExecuteW(nullptr, L"open", utf8ToWide(url).c_str(), nullptr, nullptr,
@@ -317,7 +399,12 @@ LRESULT MainWindow::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
     }
     if (HICON smallIcon = loadAppIcon(SM_CXSMICON, SM_CYSMICON)) {
         SetIcon(smallIcon, FALSE);
+        appSmallIcon_ = smallIcon;
     }
+
+    titleBar_.SetTheme(&theme_);
+    titleBar_.SetIcon(appSmallIcon_);
+    titleBar_.SetMaximized(::IsZoomed(m_hWnd) != FALSE);
 
     if (placement_.valid) {
         ::SetWindowPos(m_hWnd, nullptr, placement_.x, placement_.y, placement_.width,
@@ -345,8 +432,13 @@ LRESULT MainWindow::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
     CreateMenuBar();
     RebuildRecentMenu();
     UpdateMenuState();
+    UpdateWindowTitle();
     Layout();
     RestoreSession();
+
+    // A portable copy has no installer to write the association keys; this is
+    // a no-op when the per-machine registration is already present.
+    ensureFileAssociationsRegistered();
 
     if (!updateChecksDisabled()) {
         ::SetTimer(m_hWnd, kStartupUpdateTimer, kStartupUpdateDelayMs, nullptr);
@@ -364,6 +456,7 @@ void MainWindow::CreateMenuBar()
     fileMenu_ = ::CreatePopupMenu();
     editMenu_ = ::CreatePopupMenu();
     viewMenu_ = ::CreatePopupMenu();
+    themeMenu_ = ::CreatePopupMenu();
     helpMenu_ = ::CreatePopupMenu();
     recentMenu_ = ::CreatePopupMenu();
 
@@ -375,6 +468,9 @@ void MainWindow::CreateMenuBar()
     ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileSaveAs, L"另存为(&A)...\tCtrl+Shift+S");
     ::AppendMenuW(fileMenu_, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileCloseTab, L"关闭标签(&W)\tCtrl+W");
+    ::AppendMenuW(fileMenu_, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileSetDefault,
+                  L"设为 Markdown 默认打开方式(&D)...");
     ::AppendMenuW(fileMenu_, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(fileMenu_, MF_STRING, cmd::kFileExit, L"退出(&X)");
 
@@ -392,6 +488,11 @@ void MainWindow::CreateMenuBar()
     ::AppendMenuW(viewMenu_, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(viewMenu_, MF_STRING, cmd::kViewScrollSync, L"滚动同步(&Y)");
 
+    BuildThemeMenu();
+    ::AppendMenuW(viewMenu_, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(viewMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(themeMenu_),
+                  L"主题(&Z)");
+
     ::AppendMenuW(helpMenu_, MF_STRING, cmd::kHelpCheckUpdates, L"检查更新(&U)...");
     ::AppendMenuW(helpMenu_, MF_SEPARATOR, 0, nullptr);
     ::AppendMenuW(helpMenu_, MF_STRING, cmd::kHelpAbout, L"关于 ActiveXWebMark(&A)...\tF1");
@@ -400,7 +501,118 @@ void MainWindow::CreateMenuBar()
     ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(editMenu_), L"编辑(&E)");
     ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(viewMenu_), L"视图(&V)");
     ::AppendMenuW(mainMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(helpMenu_), L"帮助(&H)");
-    ::SetMenu(m_hWnd, mainMenu_);
+
+    // The menu is deliberately not attached with SetMenu(): the native menu bar
+    // would occupy its own row below the caption. The title bar draws the
+    // top-level labels itself and shows the popup menus on demand.
+    titleMenus_.clear();
+    std::vector<ui::MenuLabel> labels;
+    const int menuCount = ::GetMenuItemCount(mainMenu_);
+    labels.reserve(menuCount > 0 ? static_cast<std::size_t>(menuCount) : 0);
+    for (int i = 0; i < menuCount; ++i) {
+        wchar_t text[256] = {};
+        ::GetMenuStringW(mainMenu_, static_cast<UINT>(i), text, ARRAYSIZE(text), MF_BYPOSITION);
+        labels.push_back(ui::parseMenuLabel(text));
+        titleMenus_.push_back(::GetSubMenu(mainMenu_, i));
+    }
+    titleBar_.SetMenus(std::move(labels));
+}
+
+void MainWindow::AppendThemeGroup(HMENU parent, const std::wstring& label,
+                                  const std::vector<int>& indices)
+{
+    HMENU menu = ::CreatePopupMenu();
+    if (menu == nullptr) {
+        return;
+    }
+
+    const std::vector<theme::ThemeDefinition>& themes = theme::AllThemes();
+    for (int index : indices) {
+        if (index < 0 || static_cast<std::size_t>(index) >= themes.size()) {
+            continue;
+        }
+        const std::wstring item = escapeMenuText(utf8ToWide(themes[index].displayName));
+        ::AppendMenuW(menu, MF_STRING,
+                      static_cast<UINT_PTR>(cmd::kViewThemeBase) +
+                          static_cast<UINT_PTR>(index),
+                      item.c_str());
+    }
+
+    themeMenuGroups_.push_back(ThemeMenuGroup{menu, indices});
+    ::AppendMenuW(parent, MF_POPUP, reinterpret_cast<UINT_PTR>(menu), label.c_str());
+}
+
+void MainWindow::BuildThemeMenu()
+{
+    themeMenuGroups_.clear();
+
+    AppendThemeGroup(themeMenu_, L"浅色主题(&L)", theme::LightThemeIndices());
+    AppendThemeGroup(themeMenu_, L"深色主题(&D)", theme::DarkThemeIndices());
+    ::AppendMenuW(themeMenu_, MF_SEPARATOR, 0, nullptr);
+
+    HMENU byAuthor = ::CreatePopupMenu();
+    if (byAuthor != nullptr) {
+        for (const theme::ThemeGroup& group : theme::ThemesGroupedByAuthor()) {
+            AppendThemeGroup(byAuthor, escapeMenuText(utf8ToWide(group.label)),
+                             group.indices);
+        }
+        ::AppendMenuW(themeMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(byAuthor),
+                      L"按作者/来源(&S)");
+    }
+
+    HMENU byFamily = ::CreatePopupMenu();
+    if (byFamily != nullptr) {
+        for (const theme::FamilyThemeGroup& group : theme::ThemesGroupedByFamily()) {
+            AppendThemeGroup(byFamily, familyLabel(group.family), group.indices);
+        }
+        ::AppendMenuW(themeMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(byFamily),
+                      L"按色系(&C)");
+    }
+}
+
+void MainWindow::UpdateThemeMenuChecks()
+{
+    const std::vector<theme::ThemeDefinition>& themes = theme::AllThemes();
+    int current = theme::IndexOfTheme(viewSettings_.theme);
+    if (current < 0 || static_cast<std::size_t>(current) >= themes.size()) {
+        current = 0;
+    }
+    const UINT checkId = static_cast<UINT>(cmd::kViewThemeBase + current);
+
+    for (const ThemeMenuGroup& group : themeMenuGroups_) {
+        if (group.menu == nullptr || group.indices.empty()) {
+            continue;
+        }
+
+        bool containsCurrent = false;
+        for (int index : group.indices) {
+            if (index == current) {
+                containsCurrent = true;
+                break;
+            }
+        }
+
+        // Clear every item first: a submenu that no longer contains the current
+        // theme may still carry a check from a previous selection.
+        for (int index : group.indices) {
+            ::CheckMenuItem(group.menu,
+                            static_cast<UINT>(cmd::kViewThemeBase + index),
+                            MF_BYCOMMAND | MF_UNCHECKED);
+        }
+
+        if (containsCurrent) {
+            // first/last must be items that actually exist in this submenu; a
+            // global range would fail on narrow author/family lists.
+            const auto bounds =
+                std::minmax_element(group.indices.begin(), group.indices.end());
+            const UINT first =
+                static_cast<UINT>(cmd::kViewThemeBase + *bounds.first);
+            const UINT last =
+                static_cast<UINT>(cmd::kViewThemeBase + *bounds.second);
+            ::CheckMenuRadioItem(group.menu, first, last, checkId, MF_BYCOMMAND);
+            ::CheckMenuItem(group.menu, checkId, MF_BYCOMMAND | MF_CHECKED);
+        }
+    }
 }
 
 void MainWindow::RebuildRecentMenu()
@@ -428,9 +640,8 @@ void MainWindow::RebuildRecentMenu()
         }
     }
 
-    if (::IsWindow(m_hWnd)) {
-        ::DrawMenuBar(m_hWnd);
-    }
+    // The recent-file items only appear inside the 文件 popup; there is no
+    // attached menu bar to repaint.
 }
 
 void MainWindow::UpdateMenuState()
@@ -449,6 +660,9 @@ void MainWindow::UpdateMenuState()
     }
     ::CheckMenuItem(viewMenu_, cmd::kViewScrollSync,
                     MF_BYCOMMAND | (viewSettings_.scrollSync ? MF_CHECKED : MF_UNCHECKED));
+    if (themeMenu_ != nullptr) {
+        UpdateThemeMenuChecks();
+    }
     ::CheckMenuRadioItem(
         viewMenu_, cmd::kViewSplitSideBySide, cmd::kViewSplitStacked,
         viewSettings_.split == ui::Orientation::Horizontal ? cmd::kViewSplitSideBySide
@@ -497,6 +711,8 @@ void MainWindow::UpdateWindowTitle()
         title += L" - ActiveXWebMark";
     }
     SetWindowText(title.c_str());
+    titleBar_.SetTitle(title);
+    InvalidateTitleBar();
 }
 
 void MainWindow::Layout()
@@ -507,6 +723,8 @@ void MainWindow::Layout()
 
     RECT client = {};
     GetClientRect(&client);
+    UpdateTitleBarLayout();
+    const int titleHeight = TitleBarHeight();
 
     if (views_.empty()) {
         tabStrip_.ShowWindow(SW_HIDE);
@@ -516,9 +734,9 @@ void MainWindow::Layout()
 
     tabStrip_.ShowWindow(SW_SHOW);
     const int stripHeight = tabStrip_.preferredHeight();
-    tabStrip_.MoveWindow(0, 0, static_cast<int>(client.right), stripHeight, TRUE);
+    tabStrip_.MoveWindow(0, titleHeight, static_cast<int>(client.right), stripHeight, TRUE);
 
-    RECT content{0, stripHeight, client.right, client.bottom};
+    RECT content{0, titleHeight + stripHeight, client.right, client.bottom};
     for (std::size_t i = 0; i < views_.size(); ++i) {
         if (static_cast<int>(i) == activeIndex_) {
             views_[i]->ShowWindow(SW_SHOW);
@@ -586,7 +804,12 @@ int MainWindow::OpenFileInternal(const std::wstring& path, bool activate, bool r
             UpdateWindowTitle();
         },
         [this](const ViewSettings& settings) {
+            // The theme is global; a view's copy may be older than the last
+            // theme switch. Preserve the active id rather than letting a
+            // splitter drag revert it.
+            const std::string themeId = viewSettings_.theme;
             viewSettings_ = settings;
+            viewSettings_.theme = themeId;
             ApplyViewSettingsToAll();
             UpdateMenuState();
         }});
@@ -599,6 +822,7 @@ int MainWindow::OpenFileInternal(const std::wstring& path, bool activate, bool r
         return -1;
     }
     view->SetViewSettings(viewSettings_);
+    view->ApplyTheme();
     views_.push_back(std::move(view));
 
     const int index = static_cast<int>(views_.size()) - 1;
@@ -729,8 +953,8 @@ void MainWindow::ActivateTab(int index)
 
     RECT client = {};
     GetClientRect(&client);
-    const int stripHeight = tabStrip_.preferredHeight();
-    view->SetBounds(RECT{0, stripHeight, client.right, client.bottom});
+    const int top = TitleBarHeight() + tabStrip_.preferredHeight();
+    view->SetBounds(RECT{0, top, client.right, client.bottom});
     view->Activate();
 
     tabStrip_.SetActiveIndex(index);
@@ -1060,6 +1284,38 @@ void MainWindow::ApplyViewSettingsToAll()
     Layout();
 }
 
+void MainWindow::ApplyTheme(const theme::ThemeDefinition& definition, bool persist)
+{
+    viewSettings_.theme = definition.id;
+    theme_.setPalette(MakePalette(definition));
+    const ColorMode colorMode =
+        definition.dark ? ColorMode::Dark : ColorMode::Light;
+    SetProcessColorMode(colorMode);
+    ApplyColorModeToWindow(m_hWnd, colorMode);
+
+    for (const std::unique_ptr<DocumentView>& view : views_) {
+        view->SetViewSettings(viewSettings_);
+        view->ApplyTheme();
+    }
+
+    titleBar_.SetTheme(&theme_);
+    InvalidateTitleBar();
+    tabStrip_.SetTheme(&theme_);
+    if (updateDialog_ && updateDialog_->IsWindow()) {
+        updateDialog_->SetPalette(theme_.palette());
+    }
+
+    ::RedrawWindow(m_hWnd, nullptr, nullptr,
+                   RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+    UpdateMenuState();
+
+    if (persist && settings_) {
+        // JsonFileSettings persists on set(), so the choice survives a crash
+        // even though SaveSettings only runs on exit.
+        settings_->set("ui.theme", definition.id);
+    }
+}
+
 void MainWindow::SaveSettings()
 {
     if (settings_ == nullptr) {
@@ -1096,9 +1352,13 @@ LRESULT MainWindow::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
         fileMenu_ = nullptr;
         editMenu_ = nullptr;
         viewMenu_ = nullptr;
+        themeMenu_ = nullptr;
+        themeMenuGroups_.clear();
         helpMenu_ = nullptr;
         recentMenu_ = nullptr;
     }
+    titleMenus_.clear();
+    titleBar_.SetIcon(nullptr);
 
     ::PostQuitMessage(0);
     return 0;
@@ -1147,8 +1407,12 @@ LRESULT MainWindow::OnPaint(UINT, WPARAM, LPARAM, BOOL&)
         ::DeleteObject(brush);
     }
 
+    titleBar_.Paint(target);
+
     if (views_.empty()) {
-        PaintWelcome(target, client);
+        RECT content{client.left, static_cast<LONG>(TitleBarHeight()), client.right,
+                     client.bottom};
+        PaintWelcome(target, content);
     }
 
     if (buffer.valid()) {
@@ -1205,7 +1469,18 @@ LRESULT MainWindow::OnGetMinMaxInfo(UINT, WPARAM, LPARAM lParam, BOOL&)
 
 LRESULT MainWindow::OnDpiChanged(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
 {
-    theme_.setDpi(LOWORD(wParam));
+    const UINT dpi = LOWORD(wParam);
+    theme_.setDpi(dpi);
+
+    const int iconWidth = ::GetSystemMetricsForDpi(SM_CXSMICON, dpi);
+    const int iconHeight = ::GetSystemMetricsForDpi(SM_CYSMICON, dpi);
+    if (HICON icon = static_cast<HICON>(::LoadImageW(
+            ::GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON, iconWidth,
+            iconHeight, LR_DEFAULTCOLOR | LR_SHARED))) {
+        appSmallIcon_ = icon;
+        titleBar_.SetIcon(icon);
+        SetIcon(icon, FALSE);
+    }
 
     auto* suggested = reinterpret_cast<RECT*>(lParam);
     if (suggested != nullptr) {
@@ -1220,6 +1495,559 @@ LRESULT MainWindow::OnDpiChanged(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
     }
     Layout();
     return 0;
+}
+
+int MainWindow::TitleBarHeight() const
+{
+    return titleBar_.height();
+}
+
+int MainWindow::ResizeBorderThickness() const
+{
+    const UINT dpi = ::GetDpiForWindow(m_hWnd);
+    const int frame = ::GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi);
+    const int padding = ::GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+    return std::max(4, frame + padding);
+}
+
+void MainWindow::UpdateTitleBarLayout()
+{
+    if (!::IsWindow(m_hWnd)) {
+        return;
+    }
+    RECT client = {};
+    GetClientRect(&client);
+    titleBar_.Layout(static_cast<int>(client.right));
+    // WM_SIZE follows every maximize/restore, so this keeps the maximize/restore
+    // glyph in sync even when the state changed without an activation message.
+    titleBar_.SetMaximized(::IsZoomed(m_hWnd) != FALSE);
+}
+
+void MainWindow::InvalidateTitleBar()
+{
+    if (!::IsWindow(m_hWnd)) {
+        return;
+    }
+    RECT client = {};
+    GetClientRect(&client);
+    const RECT bar{client.left, client.top, client.right,
+                   client.top + static_cast<LONG>(TitleBarHeight())};
+    ::InvalidateRect(m_hWnd, &bar, FALSE);
+}
+
+LRESULT MainWindow::OnNcCalcSize(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
+{
+    // The custom title bar lives in the client area, so the non-client area is
+    // collapsed entirely. Resize borders are implemented in WM_NCHITTEST.
+    if (wParam == FALSE) {
+        return 0;
+    }
+
+    auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
+    if (params != nullptr && ::IsZoomed(m_hWnd)) {
+        // A maximized WS_OVERLAPPEDWINDOW is positioned slightly outside the
+        // work area so its frame is off-screen. With no NC area, clamp the
+        // client to the monitor work area so the taskbar stays visible.
+        MONITORINFO info = {};
+        info.cbSize = sizeof(info);
+        if (::GetMonitorInfoW(::MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST), &info) !=
+            FALSE) {
+            params->rgrc[0] = info.rcWork;
+        }
+    }
+    return 0;
+}
+
+LRESULT MainWindow::OnNcHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL&)
+{
+    const POINT screen{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+
+    if (!::IsZoomed(m_hWnd)) {
+        RECT window = {};
+        ::GetWindowRect(m_hWnd, &window);
+        const int border = ResizeBorderThickness();
+        const bool left = screen.x >= window.left && screen.x < window.left + border;
+        const bool right = screen.x < window.right && screen.x >= window.right - border;
+        const bool top = screen.y >= window.top && screen.y < window.top + border;
+        const bool bottom = screen.y < window.bottom && screen.y >= window.bottom - border;
+
+        if (top) {
+            return left ? HTTOPLEFT : (right ? HTTOPRIGHT : HTTOP);
+        }
+        if (bottom) {
+            return left ? HTBOTTOMLEFT : (right ? HTBOTTOMRIGHT : HTBOTTOM);
+        }
+        if (left) {
+            return HTLEFT;
+        }
+        if (right) {
+            return HTRIGHT;
+        }
+    }
+
+    POINT client = screen;
+    ::ScreenToClient(m_hWnd, &client);
+    RECT clientRect = {};
+    ::GetClientRect(m_hWnd, &clientRect);
+    if (client.y >= 0 && client.y < TitleBarHeight() && client.x >= 0 &&
+        client.x < clientRect.right) {
+        int menuIndex = -1;
+        return titleBarHitToNcCode(titleBar_.hitTest(client, &menuIndex));
+    }
+
+    return DefWindowProc(uMsg, wParam, lParam);
+}
+
+LRESULT MainWindow::OnNcActivate(UINT, WPARAM wParam, LPARAM, BOOL&)
+{
+    const bool active = wParam != FALSE;
+    titleBarActive_ = active;
+    titleBar_.SetActive(active);
+    titleBar_.SetMaximized(::IsZoomed(m_hWnd) != FALSE);
+    InvalidateTitleBar();
+    // Suppress DefWindowProc's caption painting; the client-drawn title bar is
+    // the only title UI.
+    return TRUE;
+}
+
+LRESULT MainWindow::OnActivate(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
+{
+    const bool active = LOWORD(wParam) != WA_INACTIVE;
+    if (titleBarActive_ != active) {
+        titleBarActive_ = active;
+        titleBar_.SetActive(active);
+        InvalidateTitleBar();
+    }
+    if (!active) {
+        ExitMenuMode();
+        titleBar_.CancelPress();
+    }
+    return DefWindowProc(WM_ACTIVATE, wParam, lParam);
+}
+
+LRESULT MainWindow::OnNcLButtonDown(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
+{
+    if (wParam == HTMAXBUTTON) {
+        // Windows 11 returns HTMAXBUTTON for Snap Layouts support; the button
+        // still needs to toggle the window itself.
+        ::SendMessageW(m_hWnd, WM_SYSCOMMAND,
+                       ::IsZoomed(m_hWnd) ? SC_RESTORE : SC_MAXIMIZE, 0);
+        return 0;
+    }
+    return DefWindowProc(WM_NCLBUTTONDOWN, wParam, lParam);
+}
+
+LRESULT MainWindow::OnNcMouseMove(UINT, WPARAM, LPARAM lParam, BOOL&)
+{
+    POINT client{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    ::ScreenToClient(m_hWnd, &client);
+    if (titleBar_.OnMouseMove(client)) {
+        InvalidateTitleBar();
+    }
+    TRACKMOUSEEVENT track = {};
+    track.cbSize = sizeof(track);
+    track.dwFlags = TME_NONCLIENT | TME_LEAVE;
+    track.hwndTrack = m_hWnd;
+    ::TrackMouseEvent(&track);
+    return 0;
+}
+
+LRESULT MainWindow::OnNcMouseLeave(UINT, WPARAM, LPARAM, BOOL&)
+{
+    if (titleBar_.OnMouseLeave()) {
+        InvalidateTitleBar();
+    }
+    return 0;
+}
+
+LRESULT MainWindow::OnMouseMove(UINT, WPARAM, LPARAM lParam, BOOL&)
+{
+    const POINT client{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (client.y >= TitleBarHeight()) {
+        if (titleBar_.OnMouseLeave()) {
+            InvalidateTitleBar();
+        }
+        return 0;
+    }
+
+    if (titleBar_.OnMouseMove(client)) {
+        InvalidateTitleBar();
+    }
+    if (!titleBarTrackingMouse_) {
+        TRACKMOUSEEVENT track = {};
+        track.cbSize = sizeof(track);
+        track.dwFlags = TME_LEAVE;
+        track.hwndTrack = m_hWnd;
+        if (::TrackMouseEvent(&track) != FALSE) {
+            titleBarTrackingMouse_ = true;
+        }
+    }
+    return 0;
+}
+
+LRESULT MainWindow::OnMouseLeave(UINT, WPARAM, LPARAM, BOOL&)
+{
+    titleBarTrackingMouse_ = false;
+    if (titleBar_.OnMouseLeave()) {
+        InvalidateTitleBar();
+    }
+    return 0;
+}
+
+LRESULT MainWindow::OnLButtonDown(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL&)
+{
+    const POINT client{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    const ui::TitleBarHit hit = titleBar_.hitTest(client);
+    if (hit == ui::TitleBarHit::None || hit == ui::TitleBarHit::Caption) {
+        return DefWindowProc(uMsg, wParam, lParam);
+    }
+
+    ExitMenuMode();
+    if (titleBar_.OnLButtonDown(client)) {
+        InvalidateTitleBar();
+    }
+    ::SetCapture(m_hWnd);
+    return 0;
+}
+
+LRESULT MainWindow::OnLButtonUp(UINT, WPARAM, LPARAM lParam, BOOL&)
+{
+    const POINT client{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    const ui::TitleBarEvent event = titleBar_.OnLButtonUp(client);
+    if (::GetCapture() == m_hWnd) {
+        ::ReleaseCapture();
+    }
+    InvalidateTitleBar();
+    HandleTitleBarEvent(event);
+    return 0;
+}
+
+LRESULT MainWindow::OnCaptureChanged(UINT, WPARAM, LPARAM, BOOL&)
+{
+    titleBarTrackingMouse_ = false;
+    if (titleBar_.hasPressed()) {
+        titleBar_.CancelPress();
+        InvalidateTitleBar();
+    }
+    return 0;
+}
+
+void MainWindow::HandleTitleBarEvent(const ui::TitleBarEvent& event)
+{
+    switch (event.action) {
+    case ui::TitleBarAction::OpenMenu:
+        ShowTitleMenu(event.menuIndex);
+        break;
+    case ui::TitleBarAction::Minimize:
+        ::SendMessageW(m_hWnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+        break;
+    case ui::TitleBarAction::ToggleMaximize:
+        ::SendMessageW(m_hWnd, WM_SYSCOMMAND,
+                       ::IsZoomed(m_hWnd) ? SC_RESTORE : SC_MAXIMIZE, 0);
+        break;
+    case ui::TitleBarAction::Close:
+        ::SendMessageW(m_hWnd, WM_CLOSE, 0, 0);
+        break;
+    case ui::TitleBarAction::ShowSystemMenu:
+        ShowSystemMenu();
+        break;
+    case ui::TitleBarAction::None:
+    default:
+        break;
+    }
+}
+
+void MainWindow::ShowTitleMenu(int index)
+{
+    if (index < 0 || index >= static_cast<int>(titleMenus_.size())) {
+        return;
+    }
+    HMENU menu = titleMenus_[static_cast<std::size_t>(index)];
+    if (menu == nullptr) {
+        return;
+    }
+
+    ExitMenuMode();
+    const RECT label = titleBar_.menuRect(index);
+    POINT anchor{label.left, label.bottom};
+    ::ClientToScreen(m_hWnd, &anchor);
+
+    titleBar_.SetOpenMenu(index);
+    InvalidateTitleBar();
+    ::UpdateWindow(m_hWnd);
+    ::SetForegroundWindow(m_hWnd);
+
+    const UINT command = ::TrackPopupMenuEx(
+        menu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD, anchor.x,
+        anchor.y, m_hWnd, nullptr);
+
+    titleBar_.SetOpenMenu(-1);
+    InvalidateTitleBar();
+    ::PostMessageW(m_hWnd, WM_NULL, 0, 0);
+
+    if (command != 0) {
+        SendCommand(static_cast<int>(command));
+    }
+}
+
+void MainWindow::ShowSystemMenu()
+{
+    HMENU menu = ::GetSystemMenu(m_hWnd, FALSE);
+    if (menu == nullptr) {
+        return;
+    }
+
+    const ui::RectI& icon = titleBar_.layout().icon;
+    POINT anchor{icon.left(), icon.bottom()};
+    ::ClientToScreen(m_hWnd, &anchor);
+    ::SetForegroundWindow(m_hWnd);
+
+    const UINT command = ::TrackPopupMenuEx(
+        menu, TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD, anchor.x, anchor.y, m_hWnd,
+        nullptr);
+    ::PostMessageW(m_hWnd, WM_NULL, 0, 0);
+    if (command != 0) {
+        ::PostMessageW(m_hWnd, WM_SYSCOMMAND, command, 0);
+    }
+}
+
+void MainWindow::EnterMenuMode(bool highlightFirst)
+{
+    titleBarMenuMode_ = true;
+    titleBar_.SetMenuMode(true);
+    titleBarMenuHighlight_ = highlightFirst && titleBar_.menuCount() > 0 ? 0 : -1;
+    titleBar_.SetHighlightedMenu(titleBarMenuHighlight_);
+    InvalidateTitleBar();
+}
+
+void MainWindow::ExitMenuMode()
+{
+    if (!titleBarMenuMode_ && titleBarMenuHighlight_ < 0) {
+        return;
+    }
+    titleBarMenuMode_ = false;
+    titleBarMenuHighlight_ = -1;
+    titleBar_.SetMenuMode(false);
+    titleBar_.SetHighlightedMenu(-1);
+    InvalidateTitleBar();
+}
+
+bool MainWindow::HandleMenuKey(MSG* message)
+{
+    if (message == nullptr) {
+        return false;
+    }
+
+    if (message->message == WM_KEYDOWN && message->wParam == VK_F10) {
+        if (titleBarMenuMode_) {
+            ExitMenuMode();
+        } else {
+            EnterMenuMode(true);
+        }
+        return true;
+    }
+
+    if (message->message == WM_SYSKEYDOWN && message->wParam == VK_MENU) {
+        if (!titleBarMenuMode_) {
+            EnterMenuMode(false);
+        }
+        // Let the system continue to see Alt so Alt+F4 / Alt+Space still work.
+        return false;
+    }
+
+    if (message->message == WM_SYSKEYUP && message->wParam == VK_MENU) {
+        if (titleBarMenuMode_) {
+            ExitMenuMode();
+        }
+        return false;
+    }
+
+    const bool isKey =
+        message->message == WM_KEYDOWN || message->message == WM_SYSKEYDOWN;
+    if (!isKey) {
+        return false;
+    }
+
+    if (titleBarMenuMode_ && message->wParam == VK_ESCAPE) {
+        ExitMenuMode();
+        return true;
+    }
+
+    if (titleBarMenuMode_ && titleBar_.menuCount() > 0 &&
+        (message->wParam == VK_LEFT || message->wParam == VK_RIGHT)) {
+        const int count = titleBar_.menuCount();
+        int next = titleBarMenuHighlight_;
+        if (next < 0) {
+            next = 0;
+        } else if (message->wParam == VK_RIGHT) {
+            next = (next + 1) % count;
+        } else {
+            next = (next + count - 1) % count;
+        }
+        titleBarMenuHighlight_ = next;
+        titleBar_.SetHighlightedMenu(next);
+        InvalidateTitleBar();
+        return true;
+    }
+
+    if (titleBarMenuMode_ &&
+        (message->wParam == VK_DOWN || message->wParam == VK_RETURN)) {
+        ShowTitleMenu(titleBarMenuHighlight_ >= 0 ? titleBarMenuHighlight_ : 0);
+        return true;
+    }
+
+    if ((message->message == WM_SYSKEYDOWN || titleBarMenuMode_) &&
+        message->wParam < 0x10000) {
+        const int index =
+            titleBar_.mnemonicMenu(static_cast<wchar_t>(message->wParam));
+        if (index >= 0) {
+            ShowTitleMenu(index);
+            return true;
+        }
+    }
+    return false;
+}
+
+LRESULT MainWindow::OnTestTitleBarState(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
+{
+    // Test/automation hover injection (see titlebar-smoke.ps1). The physical
+    // cursor cannot be used reliably in automation because TrackMouseEvent
+    // clears the hover as soon as the real cursor leaves the title bar.
+    if (wParam >= 200 && wParam <= 206) {
+        ui::TitleBarHit part = ui::TitleBarHit::None;
+        int menuIndex = -1;
+        switch (wParam) {
+        case 201:
+            part = ui::TitleBarHit::Menu;
+            menuIndex = static_cast<int>(lParam);
+            break;
+        case 202:
+            part = ui::TitleBarHit::Minimize;
+            break;
+        case 203:
+            part = ui::TitleBarHit::Maximize;
+            break;
+        case 204:
+            part = ui::TitleBarHit::Close;
+            break;
+        case 205:
+            part = ui::TitleBarHit::Caption;
+            break;
+        case 206:
+            part = ui::TitleBarHit::Icon;
+            break;
+        default:
+            break;
+        }
+        titleBar_.SetHoverForTest(part, menuIndex);
+        InvalidateTitleBar();
+        ::UpdateWindow(m_hWnd);
+        return 0;
+    }
+
+    const auto rectValue = [](const ui::RectI& rect, WPARAM part) -> LRESULT {
+        switch (part) {
+        case 0:
+            return rect.x;
+        case 1:
+            return rect.y;
+        case 2:
+            return rect.right();
+        case 3:
+            return rect.bottom();
+        default:
+            return 0;
+        }
+    };
+
+    const ui::TitleBarLayout& layout = titleBar_.layout();
+    const int menuCount = titleBar_.menuCount();
+
+    if (wParam >= 3 && wParam < static_cast<WPARAM>(3 + 4 * menuCount)) {
+        const WPARAM index = (wParam - 3) / 4;
+        const WPARAM part = (wParam - 3) % 4;
+        return rectValue(layout.menus[static_cast<std::size_t>(index)], part);
+    }
+    if (wParam >= 100 && wParam < 104) {
+        return rectValue(layout.icon, wParam - 100);
+    }
+    if (wParam >= 104 && wParam < 108) {
+        return rectValue(layout.minimizeButton, wParam - 104);
+    }
+    if (wParam >= 108 && wParam < 112) {
+        return rectValue(layout.maximizeButton, wParam - 108);
+    }
+    if (wParam >= 112 && wParam < 116) {
+        return rectValue(layout.closeButton, wParam - 112);
+    }
+    if (wParam >= 116 && wParam < 120) {
+        return rectValue(layout.title, wParam - 116);
+    }
+
+    switch (wParam) {
+    case 0: {
+        LRESULT flags = 0;
+        if (titleBarActive_) {
+            flags |= 1;
+        }
+        if (::IsZoomed(m_hWnd)) {
+            flags |= 2;
+        }
+        if (titleBarMenuMode_) {
+            flags |= 4;
+        }
+        return flags;
+    }
+    case 1:
+        return TitleBarHeight();
+    case 2:
+        return menuCount;
+    case 120:
+        return titleBar_.hoveredMenu();
+    case 121:
+        return static_cast<LRESULT>(titleBar_.hoveredPart());
+    case 122:
+        return static_cast<LRESULT>(titleBar_.pressedPart());
+    case 123:
+        return titleBar_.openMenu();
+    case 124:
+        return titleBarMenuMode_ ? 1 : 0;
+    case 125:
+        return titleBar_.active() ? 1 : 0;
+    case 126:
+        return titleBarMenuHighlight_;
+    case 131:
+        return viewSettings_.showEditor ? 1 : 0;
+    case 132:
+        return viewSettings_.scrollSync ? 1 : 0;
+    case 133:
+        return viewSettings_.showNav ? 1 : 0;
+    case 134:
+        return viewSettings_.split == ui::Orientation::Vertical ? 1 : 0;
+    case 127:
+    case 128:
+    case 129:
+    case 130: {
+        MONITORINFO info = {};
+        info.cbSize = sizeof(info);
+        if (::GetMonitorInfoW(::MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST), &info) ==
+            FALSE) {
+            return 0;
+        }
+        switch (wParam) {
+        case 127:
+            return info.rcWork.left;
+        case 128:
+            return info.rcWork.top;
+        case 129:
+            return info.rcWork.right;
+        default:
+            return info.rcWork.bottom;
+        }
+    }
+    default:
+        return 0;
+    }
 }
 
 LRESULT MainWindow::OnInitMenuPopup(UINT, WPARAM, LPARAM, BOOL&)
@@ -1283,6 +2111,23 @@ LRESULT MainWindow::OnFileCloseTab(WORD, WORD, HWND, BOOL&)
 LRESULT MainWindow::OnFileExit(WORD, WORD, HWND, BOOL&)
 {
     ::SendMessageW(m_hWnd, WM_CLOSE, 0, 0);
+    return 0;
+}
+
+LRESULT MainWindow::OnFileSetDefault(WORD, WORD, HWND, BOOL&)
+{
+    if (!ensureFileAssociationsRegistered()) {
+        ShowError(m_hWnd, L"无法写入文件关联注册表，请检查当前用户的注册表权限。");
+        return 0;
+    }
+
+    // Windows 10 ignores programmatic default-app changes, so the user has to
+    // confirm the choice in the system settings page.
+    openDefaultAppsSettings();
+    ShowInfo(m_hWnd,
+             L"已将 ActiveXWebMark 登记为 Markdown 文件的打开方式。\n\n"
+             L"Windows 不允许程序自动修改默认应用。请在打开的“默认应用”设置页中，"
+             L"将 .md 文件的默认程序选择为 ActiveXWebMark。");
     return 0;
 }
 
@@ -1354,6 +2199,17 @@ LRESULT MainWindow::OnViewScrollSync(WORD, WORD, HWND, BOOL&)
     return 0;
 }
 
+LRESULT MainWindow::OnViewTheme(WORD, WORD wID, HWND, BOOL&)
+{
+    const int index = static_cast<int>(wID) - cmd::kViewThemeBase;
+    const std::vector<theme::ThemeDefinition>& themes = theme::AllThemes();
+    if (index < 0 || index >= static_cast<int>(themes.size())) {
+        return 0;
+    }
+    ApplyTheme(themes[static_cast<std::size_t>(index)], true);
+    return 0;
+}
+
 LRESULT MainWindow::OnRecentFile(WORD, WORD wID, HWND, BOOL&)
 {
     const int index = static_cast<int>(wID) - cmd::kRecentBase;
@@ -1367,7 +2223,8 @@ LRESULT MainWindow::OnRecentFile(WORD, WORD wID, HWND, BOOL&)
 LRESULT MainWindow::OnRecentMore(WORD, WORD, HWND, BOOL&)
 {
     const std::wstring selected =
-        RecentFilesDialog::ShowModal(m_hWnd, recent_.entries(), recent_.pageSize());
+        RecentFilesDialog::ShowModal(m_hWnd, recent_.entries(), recent_.pageSize(),
+                                     theme_.palette());
     if (!selected.empty()) {
         OpenFile(selected);
     }
@@ -1440,11 +2297,13 @@ bool MainWindow::EnsureUpdateDialog()
             [this]() { DismissUpdateDialog(); },
             [this]() { InstallPreparedUpdate(); },
             [this]() { RetryPreparedDownload(); }});
+        updateDialog_->SetPalette(theme_.palette());
     }
 
     if (!updateDialog_->IsOpen() && !updateDialog_->Create(m_hWnd)) {
         return false;
     }
+    updateDialog_->SetPalette(theme_.palette());
     return true;
 }
 

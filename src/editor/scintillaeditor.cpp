@@ -50,18 +50,14 @@ int StyleIdFor(MarkupStyle style)
     }
 }
 
-// Palette shared with awm::ui::Theme (kept local so the editor library does not
-// depend on the UI layer).
-constexpr COLORREF kText = RGB(31, 35, 40);
-constexpr COLORREF kGutterBackground = RGB(247, 248, 250);
-constexpr COLORREF kGutterText = RGB(154, 160, 166);
-constexpr COLORREF kCurrentLine = RGB(246, 249, 255);
-constexpr COLORREF kSelection = RGB(216, 232, 255);
-constexpr COLORREF kAccent = RGB(47, 111, 235);
+COLORREF ToColorRef(const theme::ThemeColor& color)
+{
+    return RGB(color.r, color.g, color.b);
+}
 
 } // namespace
 
-ScintillaEditor::ScintillaEditor() = default;
+ScintillaEditor::ScintillaEditor() : scheme_(theme::DefaultTheme().editor) {}
 
 ScintillaEditor::~ScintillaEditor()
 {
@@ -111,6 +107,14 @@ void ScintillaEditor::HandleHostNotification(LPNMHDR header)
         const auto* notification = reinterpret_cast<SCNotification*>(header);
         if ((notification->updated & SC_UPDATE_V_SCROLL) != 0) {
             NotifyScrollIfChanged();
+        }
+        if ((notification->updated &
+             (SC_UPDATE_V_SCROLL | SC_UPDATE_H_SCROLL | SC_UPDATE_CONTENT)) != 0) {
+            // Scintilla repaints its native scrollbars directly; ask the frame
+            // painter to put the theme colors back after range/position
+            // changes.
+            ::RedrawWindow(hwnd_, nullptr, nullptr,
+                           RDW_FRAME | RDW_INVALIDATE | RDW_NOCHILDREN);
         }
         UpdateLineNumberWidth();
     } else if (header->code == SCN_PAINTED) {
@@ -212,6 +216,14 @@ void ScintillaEditor::SetDpiScale(double scale)
     SetupStyles();
 }
 
+void ScintillaEditor::SetColorScheme(const theme::EditorScheme& scheme)
+{
+    scheme_ = scheme;
+    if (hwnd_ != nullptr) {
+        SetupStyles();
+    }
+}
+
 void ScintillaEditor::Focus()
 {
     if (hwnd_ != nullptr) {
@@ -231,9 +243,10 @@ int ScintillaEditor::px(int logicalPixels) const
 
 void ScintillaEditor::SetupStyles()
 {
-    // Base text style: dark on light with a monospaced face.
-    ::SendMessageW(hwnd_, SCI_STYLESETFORE, STYLE_DEFAULT, kText);
-    ::SendMessageW(hwnd_, SCI_STYLESETBACK, STYLE_DEFAULT, RGB(255, 255, 255));
+    // Base text style: themed foreground/background with a monospaced face.
+    ::SendMessageW(hwnd_, SCI_STYLESETFORE, STYLE_DEFAULT, ToColorRef(scheme_.text));
+    ::SendMessageW(hwnd_, SCI_STYLESETBACK, STYLE_DEFAULT,
+                   ToColorRef(scheme_.background));
     ::SendMessageW(hwnd_, SCI_STYLESETFONT, STYLE_DEFAULT,
                    reinterpret_cast<LPARAM>(L"Consolas"));
     ::SendMessageW(hwnd_, SCI_STYLESETSIZE, STYLE_DEFAULT, 11);
@@ -245,24 +258,26 @@ void ScintillaEditor::SetupStyles()
         ::SendMessageW(hwnd_, SCI_STYLESETITALIC, style, italic ? TRUE : FALSE);
     };
 
-    setStyle(StyleHeading,    RGB(11, 87, 208),  true,  false);
-    setStyle(StyleEmphasis,   kText,             false, true);
-    setStyle(StyleStrong,     RGB(0, 0, 0),      true,  false);
-    setStyle(StyleCode,       RGB(194, 24, 91),  false, false);
-    setStyle(StyleCodeBlock,  RGB(55, 65, 81),   false, false);
-    setStyle(StyleLink,       RGB(9, 105, 218),  false, false);
-    setStyle(StyleImage,      RGB(0, 128, 0),    false, false);
-    setStyle(StyleListMarker, RGB(156, 107, 0),  true,  false);
-    setStyle(StyleBlockQuote, RGB(87, 96, 106),  false, true);
-    setStyle(StyleHtml,       RGB(122, 77, 0),   false, false);
-    setStyle(StyleHrule,      RGB(153, 153, 153), false, false);
-    setStyle(StyleComment,    RGB(0, 128, 0),    false, true);
-    setStyle(StyleReference,  RGB(138, 43, 226),  false, false);
+    setStyle(StyleHeading, ToColorRef(scheme_.heading), true, false);
+    setStyle(StyleEmphasis, ToColorRef(scheme_.emphasis), false, true);
+    setStyle(StyleStrong, ToColorRef(scheme_.strong), true, false);
+    setStyle(StyleCode, ToColorRef(scheme_.code), false, false);
+    setStyle(StyleCodeBlock, ToColorRef(scheme_.codeBlock), false, false);
+    setStyle(StyleLink, ToColorRef(scheme_.link), false, false);
+    setStyle(StyleImage, ToColorRef(scheme_.image), false, false);
+    setStyle(StyleListMarker, ToColorRef(scheme_.listMarker), true, false);
+    setStyle(StyleBlockQuote, ToColorRef(scheme_.blockQuote), false, true);
+    setStyle(StyleHtml, ToColorRef(scheme_.html), false, false);
+    setStyle(StyleHrule, ToColorRef(scheme_.hrule), false, false);
+    setStyle(StyleComment, ToColorRef(scheme_.comment), false, true);
+    setStyle(StyleReference, ToColorRef(scheme_.reference), false, false);
     ::SendMessageW(hwnd_, SCI_STYLESETUNDERLINE, StyleLink, TRUE);
 
     // Line-number gutter.
-    ::SendMessageW(hwnd_, SCI_STYLESETFORE, STYLE_LINENUMBER, kGutterText);
-    ::SendMessageW(hwnd_, SCI_STYLESETBACK, STYLE_LINENUMBER, kGutterBackground);
+    ::SendMessageW(hwnd_, SCI_STYLESETFORE, STYLE_LINENUMBER,
+                   ToColorRef(scheme_.gutterText));
+    ::SendMessageW(hwnd_, SCI_STYLESETBACK, STYLE_LINENUMBER,
+                   ToColorRef(scheme_.gutterBg));
     ::SendMessageW(hwnd_, SCI_STYLESETFONT, STYLE_LINENUMBER,
                    reinterpret_cast<LPARAM>(L"Consolas"));
     ::SendMessageW(hwnd_, SCI_STYLESETSIZE, STYLE_LINENUMBER, 9);
@@ -271,14 +286,15 @@ void ScintillaEditor::SetupStyles()
     ::SendMessageW(hwnd_, SCI_SETMARGINTYPEN, 0, SC_MARGIN_NUMBER);
     ::SendMessageW(hwnd_, SCI_SETMARGINWIDTHN, 1, 0);
     ::SendMessageW(hwnd_, SCI_SETMARGINWIDTHN, 2, 0);
-    ::SendMessageW(hwnd_, SCI_SETMARGINBACKN, 0, kGutterBackground);
+    ::SendMessageW(hwnd_, SCI_SETMARGINBACKN, 0, ToColorRef(scheme_.gutterBg));
 
     ::SendMessageW(hwnd_, SCI_SETCARETLINEVISIBLE, TRUE, 0);
     ::SendMessageW(hwnd_, SCI_SETCARETLINEVISIBLEALWAYS, TRUE, 0);
-    ::SendMessageW(hwnd_, SCI_SETCARETLINEBACK, kCurrentLine, 0);
-    ::SendMessageW(hwnd_, SCI_SETCARETFORE, kAccent, 0);
+    ::SendMessageW(hwnd_, SCI_SETCARETLINEBACK, ToColorRef(scheme_.currentLine), 0);
+    ::SendMessageW(hwnd_, SCI_SETCARETFORE, ToColorRef(scheme_.caret), 0);
     ::SendMessageW(hwnd_, SCI_SETCARETWIDTH, px(2), 0);
-    ::SendMessageW(hwnd_, SCI_SETSELBACK, TRUE, kSelection);
+    ::SendMessageW(hwnd_, SCI_SETSELBACK, TRUE, ToColorRef(scheme_.selection));
+    ::SendMessageW(hwnd_, SCI_SETSELFORE, TRUE, ToColorRef(scheme_.selectionText));
 
     ::SendMessageW(hwnd_, SCI_SETTABWIDTH, 4, 0);
     ::SendMessageW(hwnd_, SCI_SETUSETABS, FALSE, 0);
@@ -314,16 +330,21 @@ void ScintillaEditor::UpdateLineNumberWidth()
 
 void ScintillaEditor::NotifyScrollIfChanged()
 {
-    if (!scrollCallback_) {
-        return;
-    }
-
     const int line = FirstVisibleLine();
     if (line == lastReportedFirstLine_) {
         return;
     }
     lastReportedFirstLine_ = line;
-    scrollCallback_(line);
+
+    // Native scrollbars are repainted by Scintilla/Windows on scroll; refresh
+    // our themed frame overlay after the position moved.
+    if (hwnd_ != nullptr) {
+        ::RedrawWindow(hwnd_, nullptr, nullptr,
+                       RDW_FRAME | RDW_INVALIDATE | RDW_NOCHILDREN);
+    }
+    if (scrollCallback_) {
+        scrollCallback_(line);
+    }
 }
 
 void ScintillaEditor::ApplyStyle(const std::string& source, const std::vector<StyleSpan>& spans)

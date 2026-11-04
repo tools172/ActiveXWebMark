@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "layout/geometry.h"
 
 namespace awm {
@@ -16,6 +18,8 @@ struct ViewSettings {
     double stackedRatio = 0.55;
     int navWidth = 280; ///< Logical (96-DPI) pixels.
     bool scrollSync = true;
+    /// Preview/editor/chrome theme id; see core/theme/theme_catalog.h.
+    std::string theme = "github-light";
 };
 
 } // namespace awm

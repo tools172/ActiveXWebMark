@@ -10,7 +10,7 @@
   右键菜单支持关闭当前/其他/左侧/右侧、在资源管理器中显示及复制路径/文件名。
 - **会话恢复**：退出时保存所有打开的标签和当前标签，下次启动自动恢复；
   已不存在或无法读取的文件会被跳过。
-- **最近打开**：文件菜单显示前 20 条记录，“更多…”分页加载全部记录，可一键清除；
+- **最近打开**：文件菜单显示前 20 条记录，“更多…”分页加载全部记录；
   记录持久化到设置文件。
 - **右侧目录导航**：按标题层级展示可折叠的目录树，点击定位到预览锚点与编辑器行号；
   导航面板可通过头部按钮或 Ctrl+B 折叠，展开时可拖动分割条调整宽度。
@@ -22,8 +22,17 @@
   预览中高亮，F3 / Shift+F3 在匹配项之间跳转并自动回绕。
 - **完整保存流程**：Ctrl+S 保存、Ctrl+Shift+S 另存为；编辑后标签显示脏标记，
   关闭标签或退出时提供“保存/不保存/取消”选择。写入采用临时文件原子替换。
-- **精致浅色界面**：自绘现代标签栏、分割条与导航面板，细边框、悬停反馈、DPI 缩放；
-  原生控件启用 Common Controls v6 与 Explorer 主题，编辑器/预览配色统一。
+- **代码高亮与主题**：预览中的围栏代码块由内置 PrismJS 1.29 高亮（cpp/c/c#/java/go/
+  python/js/ts/jsx/tsx/json/yaml/ini/bash/powershell/sql/rust/markdown/diff/docker/
+  html/css 等）；内置 53 套主题，一次切换同时作用于预览、编辑器和自绘主窗口界面，
+  选择会持久化。主题菜单按“浅色/深色”“按作者/来源”“按色系”三种方式分类，
+  完整目录见 [docs/themes.md](docs/themes.md)。
+- **主题化滚动条**：预览文档/代码块以及编辑器、导航树、最近文件列表的竖直/水平
+  滚动条都按主题的轨道、滑块、箭头颜色绘制；原生滚动条保留系统交互行为。
+- **精致界面与主题**：自绘标题栏与窗口按钮，菜单与标题合并到标题栏一行（图标 →
+  菜单 → 标题 → 最小化/最大化/关闭），标签栏位于其下；自绘现代标签栏、分割条与
+  导航面板，细边框、悬停反馈、DPI 缩放；原生控件启用 Common Controls v6 与
+  Explorer 主题，编辑器/预览配色随主题统一。
 - **安全预览**：相对图片与链接通过 `<base>` 正确解析；外部链接交给系统浏览器打开，
   预览不会被导航走；页面内 `#锚点` 链接在预览内滚动。
 - **在线更新**：启动后后台检测一次 GitHub Releases 是否有新版本，发现后提示
@@ -46,6 +55,8 @@
 | `Esc` | 关闭查找栏 |
 | `Ctrl+B` | 显示/隐藏右侧导航目录 |
 | `Ctrl+Shift+L`（或 `Ctrl+Alt+L`） | 切换左右/上下分屏 |
+| `Alt` / `F10` | 进入标题栏菜单导航；方向键选择，Enter/↓ 打开，Esc 退出 |
+| `Alt` + 菜单字母 | 直接打开对应菜单（如 `Alt+F` 文件、`Alt+V` 视图） |
 | `F1` | 关于 ActiveXWebMark（名称、版本、构建配置、技术栈） |
 
 滚动同步可在“视图 → 滚动同步”中开关，默认开启。
@@ -53,21 +64,41 @@
 ## 技术栈
 
 C++17 · WTL 10 · Scintilla · cmark（CommonMark） · discount · IE/MSHTML 预览 ·
-GDI+ 自绘 · WinHTTP（更新检查与下载） · CMake · vcpkg（manifest 模式） · GoogleTest
+PrismJS 1.29（代码高亮，MIT） · GDI+ 自绘 · WinHTTP（更新检查与下载） · CMake ·
+vcpkg（manifest 模式） · GoogleTest
+
+主题配色参考 [MarkText](https://github.com/marktext/marktext)（MIT）与
+[VS Code](https://github.com/microsoft/vscode)（MIT）；作者归属与出处见
+[docs/themes.md](docs/themes.md)。
+
+## 浏览器兼容性
+
+预览使用 IE/MSHTML。启动时程序会把当前 EXE 名称写入
+`HKCU\Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_BROWSER_EMULATION`
+（值 `11001`），让内嵌 WebBrowser 使用 IE11 文档模式。否则 Windows 会默认退回到
+IE7/IE8 模式，`rgba()` 主题色与 PrismJS 代码高亮都无法工作。该键按用户、按 EXE 名称
+生效，程序退出时不会删除；如果系统禁止写 HKCU，预览仍能显示，但代码块不会高亮。
+
+主题作用于预览、编辑器与自绘主窗口控件。编辑器、导航树、最近文件列表的滚动条
+（含轨道、滑块、箭头）由主题色重绘，预览滚动条由主题 CSS 着色；原生滚动条仍由
+Windows 处理点击、拖动和滚轮。深色主题还会尝试启用 Windows 10/11 的暗色控件模式
+（未公开的 uxtheme 接口），让原生菜单、TreeView/ListView 选择等跟随明暗；接口不可用
+时这些系统部件保持系统样式。打开/保存对话框与 TreeView/ListView 表头仍由 Windows
+绘制。
 
 ## 目录结构
 
 ```
-third_party/   vcpkg 之外的头文件/源码库（WTL、PEG Markdown Highlight）
+third_party/   vcpkg 之外的头文件/源码库（WTL、PEG Markdown Highlight、PrismJS bundle）
 src/core/      纯 C++ 核心：文档模型 / 会话状态 / Markdown 引擎 / 高亮 / 设置 / 最近文件
 src/core/update/  GitHub Release 解析与版本比较
-src/layout/    纯几何库：分屏、导航、标签布局与 TOC 层级（无 Windows 依赖，可单测）
-src/ui/        可复用自绘控件：Theme / TabStrip / Splitter / NavPanel
+src/layout/    纯几何库：分屏、导航、标签/标题栏布局与 TOC 层级（无 Windows 依赖，可单测）
+src/ui/        可复用自绘控件：Theme / TitleBar / TabStrip / Splitter / NavPanel
 src/editor/    编辑器抽象 + Scintilla 实现
 src/preview/   预览抽象 + IE 实现（插件式，未来可加 WebView2 / Miniblink / litehtml）
 src/app/       WTL 主程序：MainWindow / DocumentView / 菜单 / 对话框 / 持久化
 src/app/update/  更新检查、下载与安装程序启动
-tests/         GoogleTest 单元测试（core + layout）
+tests/         GoogleTest 单元测试（core + layout + ui）与手动冒烟脚本
 ```
 
 模块依赖：`awm_core` ← `awm_layout` ← `awm_ui` ← `awm_app`；
@@ -97,6 +128,8 @@ ctest --preset vs2022
 
 - 最近打开的文件列表；
 - 编辑器/导航显隐、分屏方向与比例、导航宽度；
+- 主题（`ui.theme`，如 `github-light`、`catppuccin-mocha`、`tokyo-night`、
+  `vscode-dark-plus`、`github-dark` 等，完整列表见 `docs/themes.md`）；
 - 窗口位置与最大化状态；
 - 被“忽略此版本”的更新版本号（`update.ignoredVersion`）。
 

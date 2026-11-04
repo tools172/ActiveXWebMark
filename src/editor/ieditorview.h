@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "highlight/isyntaxhighlighter.h"
+#include "theme/theme_catalog.h"
 
 namespace awm {
 
@@ -58,6 +59,10 @@ public:
 
     /// Updates DPI-dependent fonts/margins (1.0 = 96 DPI).
     virtual void SetDpiScale(double scale) = 0;
+
+    /// Applies the colors of the active application theme. Implementations
+    /// that cannot be themed may ignore this.
+    virtual void SetColorScheme(const theme::EditorScheme& /*scheme*/) {}
 
     /// Gives keyboard focus to the text area.
     virtual void Focus() = 0;

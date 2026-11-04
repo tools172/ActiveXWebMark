@@ -7,6 +7,9 @@
 #include <cwchar>
 #include <utility>
 
+#include "darkmode.h"
+#include "themeapply.h"
+
 namespace awm {
 
 namespace {
@@ -78,6 +81,21 @@ bool UpdateDialog::Create(HWND owner)
 void UpdateDialog::SetCallbacks(Callbacks callbacks)
 {
     callbacks_ = std::move(callbacks);
+}
+
+void UpdateDialog::SetPalette(const ui::Palette& palette)
+{
+    theme_.setPalette(palette);
+    if (backgroundBrush_ != nullptr) {
+        ::DeleteObject(backgroundBrush_);
+        backgroundBrush_ = nullptr;
+    }
+    if (IsWindow()) {
+        backgroundBrush_ = ::CreateSolidBrush(ui::ToColorRef(theme_.palette().windowBg));
+        ApplyColorModeToWindow(
+            m_hWnd, IsDarkPalette(theme_.palette()) ? ColorMode::Dark : ColorMode::Light);
+        Invalidate(TRUE);
+    }
 }
 
 void UpdateDialog::ShowChecking(const std::wstring& currentVersion)
@@ -206,6 +224,8 @@ LRESULT UpdateDialog::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
 {
     closing_ = false;
     theme_.initialize(::GetDpiForWindow(m_hWnd));
+    ApplyColorModeToWindow(
+        m_hWnd, IsDarkPalette(theme_.palette()) ? ColorMode::Dark : ColorMode::Light);
     backgroundBrush_ = ::CreateSolidBrush(ui::ToColorRef(theme_.palette().windowBg));
     createChildren();
     return 0;

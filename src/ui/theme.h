@@ -21,7 +21,13 @@ struct Palette {
     Color windowBg{245, 246, 248};      ///< Application/client background.
     Color surface{255, 255, 255};       ///< Preview, editor and tab surface.
     Color navBg{250, 251, 252};         ///< Navigation panel header.
-    Color tabHover{237, 239, 242};      ///< Hovered inactive tab.
+    Color titleBarBg{248, 249, 251};    ///< Custom title bar, active window.
+    Color titleBarInactive{251, 252, 253}; ///< Custom title bar, inactive window.
+    Color tabHover{237, 239, 242};      ///< Hovered inactive tab / menu label.
+    Color buttonHover{231, 234, 238};   ///< Hovered minimize/maximize button.
+    Color buttonPressed{219, 223, 228}; ///< Pressed minimize/maximize button.
+    Color closeHover{232, 17, 35};      ///< Hovered close button (Windows red).
+    Color closePressed{200, 10, 26};    ///< Pressed close button.
     Color divider{225, 228, 232};       ///< 1px separators and outer borders.
     Color textPrimary{31, 35, 40};      ///< Main text.
     Color textSecondary{110, 119, 129}; ///< Muted labels and inactive tabs.
@@ -49,6 +55,10 @@ public:
 
     void initialize(UINT dpi);
     void setDpi(UINT dpi);
+
+    /// Replaces the color palette. Fonts are unaffected; controls that cache a
+    /// brush (FindBar) must be asked to re-read the theme afterwards.
+    void setPalette(const Palette& palette);
 
     UINT dpi() const { return dpi_; }
 

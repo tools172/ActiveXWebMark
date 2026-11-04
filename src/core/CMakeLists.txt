@@ -9,7 +9,9 @@ add_library(awm_core STATIC
     history/recent_files.cpp
     markdown/discountmarkdownengine.cpp
     markdown/cmarkengine.cpp
+    markdown/previewcss.cpp
     markdown/previewhtml.cpp
+    theme/theme_catalog.cpp
     session/document_session.cpp
     highlight/pmhhighlighter.cpp
     highlight/stylemerge.cpp

@@ -5,19 +5,33 @@
 
 #include <uxtheme.h>
 
+#include "darkmode.h"
+#include "themeapply.h"
 #include "util/pathutil.h"
 
 namespace awm {
 
-RecentFilesDialog::RecentFilesDialog(std::vector<std::wstring> entries, std::size_t pageSize)
-    : entries_(std::move(entries)), pageSize_(pageSize == 0 ? 20 : pageSize)
+RecentFilesDialog::RecentFilesDialog(std::vector<std::wstring> entries,
+                                     std::size_t pageSize, ui::Palette palette)
+    : entries_(std::move(entries)),
+      pageSize_(pageSize == 0 ? 20 : pageSize),
+      palette_(palette)
 {
 }
 
-std::wstring RecentFilesDialog::ShowModal(HWND owner, std::vector<std::wstring> entries,
-                                          std::size_t pageSize)
+RecentFilesDialog::~RecentFilesDialog()
 {
-    RecentFilesDialog dialog(std::move(entries), pageSize);
+    if (backgroundBrush_ != nullptr) {
+        ::DeleteObject(backgroundBrush_);
+        backgroundBrush_ = nullptr;
+    }
+}
+
+std::wstring RecentFilesDialog::ShowModal(HWND owner, std::vector<std::wstring> entries,
+                                          std::size_t pageSize,
+                                          const ui::Palette& palette)
+{
+    RecentFilesDialog dialog(std::move(entries), pageSize, palette);
     if (!dialog.CreateModalWindow(owner)) {
         return {};
     }
@@ -34,8 +48,9 @@ std::wstring RecentFilesDialog::ShowModal(HWND owner, std::vector<std::wstring> 
 bool RecentFilesDialog::CreateModalWindow(HWND owner)
 {
     theme_.initialize(::GetDpiForWindow(owner));
+    theme_.setPalette(palette_);
 
-    const int width = theme_.px(700);
+    const int width = theme_.px(840);
     const int height = theme_.px(470);
 
     RECT ownerRect = {};
@@ -59,15 +74,27 @@ void RecentFilesDialog::CreateChildren()
 {
     RECT zero = {0, 0, 0, 0};
 
+    backgroundBrush_ = ::CreateSolidBrush(ui::ToColorRef(theme_.palette().windowBg));
+
     list_.Create(m_hWnd, zero, nullptr,
                  WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | LVS_REPORT | LVS_SINGLESEL |
                      LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
                  0, kListId);
     list_.SetExtendedListViewStyle(LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP);
     ::SetWindowTheme(list_.m_hWnd, L"Explorer", nullptr);
+    ListView_SetBkColor(list_.m_hWnd, ui::ToColorRef(theme_.palette().surface));
+    ListView_SetTextBkColor(list_.m_hWnd, ui::ToColorRef(theme_.palette().surface));
+    ListView_SetTextColor(list_.m_hWnd, ui::ToColorRef(theme_.palette().textPrimary));
     ::SendMessageW(list_.m_hWnd, WM_SETFONT, reinterpret_cast<WPARAM>(theme_.uiFont()), TRUE);
-    list_.InsertColumn(0, L"文件", LVCFMT_LEFT, theme_.px(260));
-    list_.InsertColumn(1, L"位置", LVCFMT_LEFT, theme_.px(340));
+
+    const ColorMode mode =
+        IsDarkPalette(theme_.palette()) ? ColorMode::Dark : ColorMode::Light;
+    ApplyColorModeToWindow(m_hWnd, mode);
+    ApplyColorModeToWindow(list_.m_hWnd, mode);
+    ui::SetThemedScrollbar(list_.m_hWnd, MakeScrollbarColors(theme_.palette()));
+    list_.InsertColumn(0, L"序号", LVCFMT_RIGHT, theme_.px(64));
+    list_.InsertColumn(1, L"文件", LVCFMT_LEFT, theme_.px(280));
+    list_.InsertColumn(2, L"位置", LVCFMT_LEFT, theme_.px(380));
 
     info_.Create(m_hWnd, zero, L"", WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX);
     ::SendMessageW(info_.m_hWnd, WM_SETFONT,
@@ -136,27 +163,36 @@ void RecentFilesDialog::Layout()
     info_.MoveWindow(&infoRect, TRUE);
 
     const int listWidth = std::max(0, static_cast<int>(listRect.right - listRect.left));
-    list_.SetColumnWidth(0, static_cast<int>(listWidth * 0.42));
-    list_.SetColumnWidth(1, std::max(0, listWidth - static_cast<int>(listWidth * 0.42) -
-                                            theme_.px(4)));
+    const int numberWidth = theme_.px(64);
+    const int remaining = std::max(0, listWidth - numberWidth - theme_.px(4));
+    const int nameWidth = static_cast<int>(remaining * 0.44);
+    list_.SetColumnWidth(0, numberWidth);
+    list_.SetColumnWidth(1, nameWidth);
+    list_.SetColumnWidth(2, std::max(0, remaining - nameWidth));
 }
 
 void RecentFilesDialog::AppendRows(std::size_t begin, std::size_t end)
 {
     end = std::min(end, entries_.size());
     for (std::size_t i = begin; i < end; ++i) {
+        const std::wstring number = std::to_wstring(i + 1);
         const std::wstring name = fileName(entries_[i]);
         LVITEMW item = {};
         item.mask = LVIF_TEXT | LVIF_PARAM;
         item.iItem = list_.GetItemCount();
-        item.pszText = const_cast<LPWSTR>(name.c_str());
+        item.pszText = const_cast<LPWSTR>(number.c_str());
         item.lParam = static_cast<LPARAM>(i);
 
         const int index = list_.InsertItem(&item);
         if (index >= 0) {
+            list_.SetItemText(index, 1, name.c_str());
             const std::wstring directory = fileDirectory(entries_[i]);
-            list_.SetItemText(index, 1, directory.c_str());
+            list_.SetItemText(index, 2, directory.c_str());
         }
+    }
+    if (list_.IsWindow()) {
+        ::RedrawWindow(list_.m_hWnd, nullptr, nullptr,
+                       RDW_FRAME | RDW_INVALIDATE | RDW_NOCHILDREN);
     }
 }
 
@@ -289,6 +325,17 @@ LRESULT RecentFilesDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
 {
     done_ = true;
     return 0;
+}
+
+LRESULT RecentFilesDialog::OnCtlColorStatic(UINT, WPARAM wParam, LPARAM lParam, BOOL&)
+{
+    HDC dc = reinterpret_cast<HDC>(wParam);
+    const HWND control = reinterpret_cast<HWND>(lParam);
+    const ui::Palette& palette = theme_.palette();
+    ::SetBkMode(dc, TRANSPARENT);
+    ::SetTextColor(dc, ui::ToColorRef(control == info_.m_hWnd ? palette.textSecondary
+                                                               : palette.textPrimary));
+    return reinterpret_cast<LRESULT>(backgroundBrush_);
 }
 
 LRESULT RecentFilesDialog::OnListDoubleClick(int, LPNMHDR, BOOL&)

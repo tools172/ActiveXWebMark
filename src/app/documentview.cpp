@@ -1,9 +1,15 @@
 #include "documentview.h"
 
 #include <algorithm>
+
 #include <cmath>
+#include <cstdio>
 #include <sstream>
 #include <utility>
+
+#include "darkmode.h"
+#include "theme/theme_catalog.h"
+#include "themeapply.h"
 
 #include "markdown/previewhtml.h"
 #include "scrollsync.h"
@@ -78,9 +84,7 @@ if(i>=st.marks.length){i=0;}
 st.index=i;
 for(var k=0;k<st.marks.length;k++){
 var mk=st.marks[k];
-mk.style.backgroundColor=(k===i)?'#ffb74d':'#ffe082';
-mk.style.color='#1f2328';
-mk.style.borderRadius='2px';
+mk.className=(k===i)?'awm-find awm-find-current':'awm-find';
 }
 var r=st.marks[i].getBoundingClientRect();
 var d=document.documentElement,b=document.body;
@@ -129,8 +133,6 @@ var a=found[j][0],b=found[j][1];
 if(a>pos){frag.appendChild(document.createTextNode(text.substring(pos,a)));}
 var mk=document.createElement('span');
 mk.className='awm-find';
-mk.style.backgroundColor='#ffe082';
-mk.style.color='#1f2328';
 frag.appendChild(mk);
 mk.appendChild(document.createTextNode(text.substring(a,b)));
 pos=b;
@@ -167,8 +169,7 @@ if(i>=st.marks.length){i=0;}
 st.index=i;
 for(var k=0;k<st.marks.length;k++){
 var mk=st.marks[k];
-mk.style.backgroundColor=(k===i)?'#ffb74d':'#ffe082';
-mk.style.color='#1f2328';
+mk.className=(k===i)?'awm-find awm-find-current':'awm-find';
 }
 var r=st.marks[i].getBoundingClientRect();
 var d=document.documentElement,b=document.body;
@@ -354,6 +355,45 @@ void DocumentView::SetViewSettings(const ViewSettings& settings)
     if (scrollSync_) {
         scrollSync_->SetEnabled(settings_.scrollSync);
     }
+}
+
+void DocumentView::ApplyTheme()
+{
+    if (theme() == nullptr) {
+        return;
+    }
+
+    // Controls read palette() while painting, but NavPanel paints its native
+    // tree in SetTheme and FindBar caches a background brush, so both must be
+    // told again after the palette changed.
+    navPanel_.SetTheme(theme());
+    navSplitter_.SetTheme(theme());
+    editorSplitter_.SetTheme(theme());
+    dragLine_.SetTheme(theme());
+    if (findBar_.IsWindow()) {
+        findBar_.SetTheme(theme());
+    }
+
+    const theme::ThemeDefinition& definition = theme::ResolveTheme(settings_.theme);
+    const ColorMode colorMode = definition.dark ? ColorMode::Dark : ColorMode::Light;
+    const ui::ScrollbarColors scrollbars = MakeScrollbarColors(definition);
+    if (editor_ != nullptr) {
+        ApplyColorModeToWindow(editor_->hwnd(), colorMode);
+        ui::SetThemedScrollbar(editor_->hwnd(), scrollbars);
+        editor_->SetColorScheme(definition.editor);
+    }
+    ApplyColorModeToWindow(navPanel_.treeHwnd(), colorMode);
+    ui::SetThemedScrollbar(navPanel_.treeHwnd(), scrollbars);
+
+    // The preview document embeds the theme CSS, so rebuild it. Hidden tabs
+    // defer this until Activate() to avoid re-rendering every open document at
+    // once when the theme changes.
+    lastHtml_.clear();
+    rendered_ = false;
+    if (IsWindowVisible()) {
+        RenderNow();
+    }
+    Invalidate(FALSE);
 }
 
 void DocumentView::Activate()
@@ -618,6 +658,55 @@ LRESULT DocumentView::OnTestFindState(UINT, WPARAM wParam, LPARAM, BOOL&)
     }
 }
 
+LRESULT DocumentView::OnTestPreviewState(UINT, WPARAM wParam, LPARAM, BOOL&)
+{
+    if (wParam != 0 || preview_ == nullptr || !preview_->SupportsJavaScript()) {
+        return 0;
+    }
+
+    static const char* kScript = R"JS(
+(function(){
+var codes=document.getElementsByTagName('code'),lang=0,spans=0,i,c;
+for(i=0;i<codes.length;i++){
+c=codes[i];
+if(/(?:^|\s)language-/i.test(c.className||'')){lang++;}
+spans+=c.getElementsByTagName('span').length;
+}
+var dark=0;
+try{
+var bg=window.getComputedStyle?getComputedStyle(document.body).backgroundColor:'';
+var m=/rgba?\((\d+)[, ]+(\d+)[, ]+(\d+)/.exec(bg);
+if(m){dark=((+m[1])*299+(+m[2])*587+(+m[3])*114)/1000<128?1:0;}
+}catch(e){}
+var h=document.getElementById('awm-test-preview');
+if(!h){h=document.createElement('div');h.id='awm-test-preview';h.style.display='none';document.body.appendChild(h);}
+var mode=document.documentMode||0;
+var scripts=document.getElementsByTagName('script').length;
+h.innerHTML=lang+';'+spans+';'+((window.Prism&&Prism.languages)?1:0)+';'+dark+';'+mode+';'+scripts;
+})();
+)JS";
+
+    const std::string result =
+        preview_->RunJavaScriptForResult(kScript, "awm-test-preview");
+    unsigned lang = 0;
+    unsigned spans = 0;
+    unsigned prism = 0;
+    unsigned dark = 0;
+    unsigned mode = 0;
+    unsigned scripts = 0;
+    if (sscanf_s(result.c_str(), "%u;%u;%u;%u;%u;%u", &lang, &spans, &prism, &dark,
+                 &mode, &scripts) != 6) {
+        return 0;
+    }
+
+    const UINT64 packed = (spans & 0xFFFFu) | ((lang & 0xFFu) << 16) |
+                          (prism != 0 ? (1u << 24) : 0u) |
+                          (dark != 0 ? (1u << 25) : 0u) |
+                          ((static_cast<UINT64>(mode) & 0xFFu) << 32) |
+                          ((static_cast<UINT64>(scripts) & 0xFFu) << 40);
+    return static_cast<LRESULT>(packed);
+}
+
 void DocumentView::FlushEditorText()
 {
     if (editor_ == nullptr || session_ == nullptr || !textDirty_) {
@@ -848,6 +937,10 @@ void DocumentView::RenderNow()
     if (preview_ != nullptr) {
         PreviewHtmlOptions options;
         options.baseFileUrl = BaseUrl();
+        options.theme = &theme::ResolveTheme(settings_.theme);
+        if (services_.previewAssets != nullptr) {
+            options.inlineScript = services_.previewAssets->prismScript;
+        }
         std::string html = BuildPreviewHtml(result.bodyHtml, options);
         if (html != lastHtml_) {
             lastHtml_ = std::move(html);

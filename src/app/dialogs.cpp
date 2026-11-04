@@ -286,7 +286,8 @@ void ShowAboutDialog(HWND owner)
         L"技术栈：C++17 · WTL · Scintilla · cmark · GDI+ · WinHTTP\n"
         L"预览引擎：IE/MSHTML\n\n"
         L"第三方组件：discount (BSD-3)、cmark (BSD-2)、PEG Markdown Highlight (MIT)、"
-        L"Scintilla (MIT)、WTL (MS-PL)";
+        L"Scintilla (MIT)、Prism (MIT)、WTL (MS-PL)\n"
+        L"主题配色参考 MarkText (MIT)";
 
     constexpr const wchar_t* kProjectUrl =
         L"https://github.com/tools172/ActiveXWebMark";
