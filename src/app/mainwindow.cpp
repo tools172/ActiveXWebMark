@@ -136,6 +136,22 @@ bool endsWithNoCase(const std::wstring& text, const wchar_t* suffix)
            ::_wcsicmp(text.c_str() + text.size() - length, suffix) == 0;
 }
 
+/// The outer frame must stay visible when the preview/tree surface is white,
+/// so it is the theme divider nudged toward the text color. On light themes
+/// that darkens the line; on dark themes it lightens it.
+ui::Color frameBorderColor(const ui::Palette& palette)
+{
+    constexpr int kTextWeight = 30;
+    const auto mix = [kTextWeight](BYTE divider, BYTE text) {
+        return static_cast<BYTE>((static_cast<int>(divider) * (100 - kTextWeight) +
+                                  static_cast<int>(text) * kTextWeight + 50) /
+                                 100);
+    };
+    return ui::Color{mix(palette.divider.r, palette.textPrimary.r),
+                     mix(palette.divider.g, palette.textPrimary.g),
+                     mix(palette.divider.b, palette.textPrimary.b)};
+}
+
 /// Windows 11 supports Snap Layouts when WM_NCHITTEST returns HTMAXBUTTON.
 /// RtlGetVersion is used instead of GetVersionEx so the result ignores the
 /// executable's compatibility manifest.
@@ -732,11 +748,17 @@ void MainWindow::Layout()
         return;
     }
 
+    // Children stop short of the client edge so the frame painted in OnPaint
+    // stays visible instead of being covered by the preview or the nav tree.
+    const int frame = FrameThickness();
+    const int right = std::max(frame, static_cast<int>(client.right) - frame);
+    const int bottom = std::max(frame, static_cast<int>(client.bottom) - frame);
+
     tabStrip_.ShowWindow(SW_SHOW);
     const int stripHeight = tabStrip_.preferredHeight();
-    tabStrip_.MoveWindow(0, titleHeight, static_cast<int>(client.right), stripHeight, TRUE);
+    tabStrip_.MoveWindow(frame, titleHeight, std::max(0, right - frame), stripHeight, TRUE);
 
-    RECT content{0, titleHeight + stripHeight, client.right, client.bottom};
+    RECT content{frame, titleHeight + stripHeight, right, bottom};
     for (std::size_t i = 0; i < views_.size(); ++i) {
         if (static_cast<int>(i) == activeIndex_) {
             views_[i]->ShowWindow(SW_SHOW);
@@ -953,8 +975,10 @@ void MainWindow::ActivateTab(int index)
 
     RECT client = {};
     GetClientRect(&client);
+    const int frame = FrameThickness();
     const int top = TitleBarHeight() + tabStrip_.preferredHeight();
-    view->SetBounds(RECT{0, top, client.right, client.bottom});
+    view->SetBounds(RECT{frame, top, std::max(frame, static_cast<int>(client.right) - frame),
+                         std::max(frame, static_cast<int>(client.bottom) - frame)});
     view->Activate();
 
     tabStrip_.SetActiveIndex(index);
@@ -1462,6 +1486,26 @@ LRESULT MainWindow::OnPaint(UINT, WPARAM, LPARAM, BOOL&)
         PaintWelcome(target, content);
     }
 
+    const int frame = FrameThickness();
+    if (frame > 0) {
+        HBRUSH frameBrush =
+            ::CreateSolidBrush(ui::ToColorRef(frameBorderColor(palette)));
+        if (frameBrush != nullptr) {
+            const LONG right = client.right;
+            const LONG bottom = client.bottom;
+            RECT strips[] = {
+                {client.left, client.top, right, client.top + frame},
+                {client.left, bottom - frame, right, bottom},
+                {client.left, client.top, client.left + frame, bottom},
+                {right - frame, client.top, right, bottom},
+            };
+            for (const RECT& strip : strips) {
+                ::FillRect(target, &strip, frameBrush);
+            }
+            ::DeleteObject(frameBrush);
+        }
+    }
+
     if (buffer.valid()) {
         buffer.present();
     }
@@ -1555,6 +1599,16 @@ int MainWindow::ResizeBorderThickness() const
     const int frame = ::GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi);
     const int padding = ::GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
     return std::max(4, frame + padding);
+}
+
+int MainWindow::FrameThickness() const
+{
+    // A maximized window sits flush against the work area; a frame there would
+    // only draw a ring around the whole screen.
+    if (::IsZoomed(m_hWnd)) {
+        return 0;
+    }
+    return std::max(1, theme_.px(1));
 }
 
 void MainWindow::UpdateTitleBarLayout()

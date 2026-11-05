@@ -484,7 +484,11 @@ try {
     [void][AwmTitleBarSmoke]::ScreenToClient($main, [ref]$stripBottomRight)
     Check ($stripTopLeft.Y -eq $layout.Height) "标签栏紧贴标题栏下方（top = $($layout.Height)）"
     Check (($stripBottomRight.Y - $stripTopLeft.Y) -eq $expectedStripHeight) "标签栏高度按 DPI 缩放（$expectedStripHeight px）"
-    Check (($stripBottomRight.X - $stripTopLeft.X) -eq $client.R) "标签栏占满客户区宽度"
+    # 内容区在左右各让出 1 px（按 DPI 缩放）的窗口外框。
+    $expectedFrame = [Math]::Max(1, (Round-Px 1 $dpi))
+    Check (($stripTopLeft.X -eq $expectedFrame) -and
+           ($stripBottomRight.X -eq ($client.R - $expectedFrame))) `
+        "标签栏位于窗口外框内（左右各 $expectedFrame px）"
 
     $titleBuilder = New-Object System.Text.StringBuilder 512
     [void][AwmTitleBarSmoke]::GetWindowTextW($main, $titleBuilder, 512)

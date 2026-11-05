@@ -137,6 +137,8 @@ private:
     void InvalidateTitleBar();
     int TitleBarHeight() const;
     int ResizeBorderThickness() const;
+    /// Width of the client-drawn frame around the window (0 when maximized).
+    int FrameThickness() const;
 
     LRESULT OnFileOpen(WORD, WORD, HWND, BOOL&);
     LRESULT OnFileSave(WORD, WORD, HWND, BOOL&);

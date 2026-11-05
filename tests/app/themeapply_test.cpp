@@ -92,3 +92,12 @@ TEST(ThemeApply, ScrollbarColorsFollowEachTheme)
     EXPECT_EQ(fromPalette.track, ui::ToColorRef(palette.surface));
     EXPECT_EQ(fromPalette.arrow, ui::ToColorRef(palette.textSecondary));
 }
+
+TEST(ThemeApply, NavigationScrollbarUsesSidebarBackground)
+{
+    const ui::Palette palette =
+        MakePalette(theme::ResolveTheme(theme::kDefaultThemeId));
+    const ui::ScrollbarColors nav = MakeNavScrollbarColors(palette);
+    EXPECT_EQ(nav.track, ui::ToColorRef(palette.windowBg));
+    EXPECT_EQ(nav.arrow, ui::ToColorRef(palette.textSecondary));
+}

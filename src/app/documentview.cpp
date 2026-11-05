@@ -383,7 +383,7 @@ void DocumentView::ApplyTheme()
         editor_->SetColorScheme(definition.editor);
     }
     ApplyColorModeToWindow(navPanel_.treeHwnd(), colorMode);
-    ui::SetThemedScrollbar(navPanel_.treeHwnd(), scrollbars);
+    ui::SetThemedScrollbar(navPanel_.treeHwnd(), MakeNavScrollbarColors(theme()->palette()));
 
     // The preview document embeds the theme CSS, so rebuild it. Hidden tabs
     // defer this until Activate() to avoid re-rendering every open document at

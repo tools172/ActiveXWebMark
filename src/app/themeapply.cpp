@@ -89,4 +89,13 @@ ui::ScrollbarColors MakeScrollbarColors(const ui::Palette& palette)
     return colors;
 }
 
+ui::ScrollbarColors MakeNavScrollbarColors(const ui::Palette& palette)
+{
+    ui::ScrollbarColors colors;
+    colors.track = ui::ToColorRef(palette.windowBg);
+    colors.thumb = ThumbOver(colors.track, ui::ToColorRef(palette.textPrimary));
+    colors.arrow = ui::ToColorRef(palette.textSecondary);
+    return colors;
+}
+
 } // namespace awm

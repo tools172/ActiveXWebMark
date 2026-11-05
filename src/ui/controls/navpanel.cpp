@@ -161,7 +161,9 @@ void NavPanel::applyTheme()
     const Palette& palette = theme_->palette();
     ::SendMessageW(tree_.m_hWnd, WM_SETFONT,
                    reinterpret_cast<WPARAM>(theme_->uiFont()), TRUE);
-    TreeView_SetBkColor(tree_.m_hWnd, ToColorRef(palette.surface));
+    // The tree uses the sidebar tint rather than the document surface, so the
+    // navigation panel reads as chrome instead of another white page.
+    TreeView_SetBkColor(tree_.m_hWnd, ToColorRef(palette.windowBg));
     TreeView_SetTextColor(tree_.m_hWnd, ToColorRef(palette.textPrimary));
     TreeView_SetLineColor(tree_.m_hWnd, ToColorRef(palette.divider));
     TreeView_SetItemHeight(tree_.m_hWnd, theme_->px(24));
@@ -190,7 +192,7 @@ LRESULT NavPanel::OnPaint(UINT, WPARAM, LPARAM, BOOL&)
     GetClientRect(&client);
     const Palette palette = theme_ != nullptr ? theme_->palette() : Palette{};
 
-    fillSolid(dc, client, ToColorRef(palette.navBg));
+    fillSolid(dc, client, ToColorRef(palette.windowBg));
 
     const int header = headerHeight();
     RECT headerRect{client.left, client.top, client.right, header};
