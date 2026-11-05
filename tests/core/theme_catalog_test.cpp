@@ -20,8 +20,7 @@ TEST(ThemeCatalog, HasAllThemesAndGithubDefault)
         EXPECT_TRUE(ids.insert(entry.id).second) << "duplicate id " << entry.id;
         EXPECT_TRUE(names.insert(entry.displayName).second)
             << "duplicate display name " << entry.displayName;
-        EXPECT_NE(entry.author, nullptr);
-        EXPECT_FALSE(std::string(entry.author).empty()) << entry.id;
+        EXPECT_FALSE(entry.author.empty()) << entry.id;
     }
 
     EXPECT_EQ(std::string(theme::DefaultTheme().id), "github-light");

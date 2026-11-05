@@ -62,4 +62,9 @@ std::filesystem::path updateDirectory()
     return settingsFilePath().parent_path() / L"updates";
 }
 
+std::filesystem::path themesDirectory()
+{
+    return settingsFilePath().parent_path() / L"themes";
+}
+
 } // namespace awm

@@ -27,6 +27,12 @@
   html/css 等）；内置 53 套主题，一次切换同时作用于预览、编辑器和自绘主窗口界面，
   选择会持久化。主题菜单按“浅色/深色”“按作者/来源”“按色系”三种方式分类，
   完整目录见 [docs/themes.md](docs/themes.md)。
+- **自定义主题**：“视图 → 主题 → 主题设置...”可新建、复制、编辑、导入、删除和
+  导出主题，并带真实 Markdown 预览。支持导入 VS Code Color Theme JSON/JSONC
+  （含 `include` 与 `tokenColors`）、VSIX 主题包、TextMate `.tmTheme` 和
+  Base16/Base24。用户主题保存在 `%LOCALAPPDATA%\ActiveXWebMark\themes\`，
+  格式与 Schema 见 [docs/themes.md](docs/themes.md) 和
+  [docs/awmtheme.schema.json](docs/awmtheme.schema.json)。
 - **主题化滚动条**：预览文档/代码块以及编辑器、导航树、最近文件列表的竖直/水平
   滚动条都按主题的轨道、滑块、箭头颜色绘制；原生滚动条保留系统交互行为。
 - **精致界面与主题**：自绘标题栏与窗口按钮，菜单与标题合并到标题栏一行（图标 →
@@ -64,8 +70,8 @@
 ## 技术栈
 
 C++17 · WTL 10 · Scintilla · cmark（CommonMark） · discount · IE/MSHTML 预览 ·
-PrismJS 1.29（代码高亮，MIT） · GDI+ 自绘 · WinHTTP（更新检查与下载） · CMake ·
-vcpkg（manifest 模式） · GoogleTest
+PrismJS 1.29（代码高亮，MIT） · miniz（VSIX ZIP 读取，MIT） · GDI+ 自绘 ·
+WinHTTP（更新检查与下载） · CMake · vcpkg（manifest 模式） · GoogleTest
 
 主题配色参考 [MarkText](https://github.com/marktext/marktext)（MIT）与
 [VS Code](https://github.com/microsoft/vscode)（MIT）；作者归属与出处见

@@ -90,6 +90,7 @@ public:
         COMMAND_ID_HANDLER(cmd::kViewScrollSync, OnViewScrollSync)
         COMMAND_RANGE_HANDLER(cmd::kViewThemeBase,
                               cmd::kViewThemeBase + cmd::kViewThemeMax - 1, OnViewTheme)
+        COMMAND_ID_HANDLER(cmd::kViewThemeSettings, OnViewThemeSettings)
         COMMAND_ID_HANDLER(cmd::kEditFind, OnEditFind)
         COMMAND_ID_HANDLER(cmd::kEditFindNext, OnEditFindNext)
         COMMAND_ID_HANDLER(cmd::kEditFindPrevious, OnEditFindPrevious)
@@ -153,6 +154,7 @@ private:
     LRESULT OnViewToggleSplit(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewScrollSync(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewTheme(WORD, WORD, HWND, BOOL&);
+    LRESULT OnViewThemeSettings(WORD, WORD, HWND, BOOL&);
     LRESULT OnEditFind(WORD, WORD, HWND, BOOL&);
     LRESULT OnEditFindNext(WORD, WORD, HWND, BOOL&);
     LRESULT OnEditFindPrevious(WORD, WORD, HWND, BOOL&);
@@ -209,6 +211,9 @@ private:
 
     void ApplyViewSettingsToAll();
     void ApplyTheme(const theme::ThemeDefinition& definition, bool persist);
+    /// Re-reads %LOCALAPPDATA%\ActiveXWebMark\themes and replaces the catalog's
+    /// user-theme tail. Call before LoadViewSettings so ui.theme resolves.
+    void ReloadUserThemes();
     void UpdateTabStrip();
     void UpdateWindowTitle();
     void UpdateMenuState();
@@ -242,6 +247,8 @@ private:
     bool titleBarActive_ = true;
     std::vector<std::unique_ptr<DocumentView>> views_;
     int activeIndex_ = -1;
+    std::vector<std::string> themeLoadErrors_;
+    unsigned themeMenuGeneration_ = 0;
     ViewSettings viewSettings_;
 
     HMENU mainMenu_ = nullptr;

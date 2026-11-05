@@ -1,5 +1,8 @@
 #include "markdown/previewcss.h"
 
+#include <cstdio>
+#include <string>
+
 namespace awm {
 
 namespace {
@@ -7,12 +10,37 @@ namespace {
 using theme::ColorToCss;
 using theme::ThemeColor;
 
+constexpr const char* kDefaultBodyFont =
+    "'Segoe UI','Microsoft YaHei UI','Microsoft YaHei',sans-serif";
+constexpr const char* kDefaultCodeFont =
+    "Consolas,'Cascadia Mono','Courier New',monospace";
+
 void appendRule(std::string& css, const char* selector, const ThemeColor& color)
 {
     css += selector;
     css += "{color:";
     css += ColorToCss(color);
     css += ";}";
+}
+
+std::string CssNumber(double value)
+{
+    char buffer[32] = {};
+    std::snprintf(buffer, sizeof(buffer), "%g", value);
+    return buffer;
+}
+
+/// Rejects font-family strings that could terminate the declaration or pull in
+/// a CSS function. Quotes and commas are allowed (font stacks need them).
+std::string SafeFont(const std::string& font, const char* fallback)
+{
+    if (font.empty()) {
+        return fallback;
+    }
+    if (font.find_first_of(";{}<>@\\()") != std::string::npos) {
+        return fallback;
+    }
+    return font;
 }
 
 } // namespace
@@ -25,15 +53,38 @@ std::string BuildPreviewCss(const theme::ThemeDefinition& theme)
     std::string css;
     css.reserve(4096);
 
+    const theme::ThemeTypography& type = theme.typography;
+    const std::string bodyFont = SafeFont(type.bodyFont, kDefaultBodyFont);
+    const std::string codeFont = SafeFont(type.codeFont, kDefaultCodeFont);
+    const int bodySize = type.bodySize > 0 ? type.bodySize : 15;
+    const double lineHeight = type.lineHeight > 0.0 ? type.lineHeight : 1.75;
+    const int maxWidth = type.maxWidth > 0 ? type.maxWidth : 980;
+    const int padTop = type.padTop >= 0 ? type.padTop : 32;
+    const int padRight = type.padRight >= 0 ? type.padRight : 40;
+    const int padBottom = type.padBottom >= 0 ? type.padBottom : 64;
+    const int codeSize = type.codeSize > 0 ? type.codeSize : 13;
+
     css += "html,body{margin:0;padding:0;}";
     css += "body{background:";
     css += ColorToCss(preview.pageBg);
     css += ";color:";
     css += ColorToCss(preview.pageText);
-    css += ";font-family:'Segoe UI','Microsoft YaHei UI','Microsoft YaHei',sans-serif;"
-           "font-size:15px;line-height:1.75;-webkit-text-size-adjust:100%;}";
-    css += ".markdown-body{max-width:980px;margin:0 auto;padding:32px 40px 64px;"
-           "overflow-wrap:break-word;word-wrap:break-word;}";
+    css += ";font-family:";
+    css += bodyFont;
+    css += ";font-size:";
+    css += std::to_string(bodySize);
+    css += "px;line-height:";
+    css += CssNumber(lineHeight);
+    css += ";-webkit-text-size-adjust:100%;}";
+    css += ".markdown-body{max-width:";
+    css += std::to_string(maxWidth);
+    css += "px;margin:0 auto;padding:";
+    css += std::to_string(padTop);
+    css += "px ";
+    css += std::to_string(padRight);
+    css += "px ";
+    css += std::to_string(padBottom);
+    css += "px;overflow-wrap:break-word;word-wrap:break-word;}";
     css += "h1,h2,h3,h4,h5,h6{font-weight:600;line-height:1.3;margin:28px 0 14px;}";
 
     const auto appendHeading = [&](const char* selector, const ThemeColor& color,
@@ -70,8 +121,9 @@ std::string BuildPreviewCss(const theme::ThemeDefinition& theme)
     css += ";}em{color:";
     css += ColorToCss(preview.em);
     css += ";}";
-    css += "code{font-family:Consolas,'Cascadia Mono','Courier New',monospace;"
-           "font-size:90%;background:";
+    css += "code{font-family:";
+    css += codeFont;
+    css += ";font-size:90%;background:";
     css += ColorToCss(preview.inlineCodeBg);
     css += ";color:";
     css += ColorToCss(preview.inlineCodeText);
@@ -81,7 +133,9 @@ std::string BuildPreviewCss(const theme::ThemeDefinition& theme)
     css += ";border:1px solid ";
     css += ColorToCss(preview.codeBlockBorder);
     css += ";border-radius:6px;padding:14px 16px;overflow:auto;line-height:1.5;}";
-    css += "pre code{background:none;padding:0;font-size:13px;color:";
+    css += "pre code{background:none;padding:0;font-size:";
+    css += std::to_string(codeSize);
+    css += "px;color:";
     css += ColorToCss(preview.codeBlockText);
     css += ";}";
     css += "blockquote{border-left:4px solid ";
@@ -100,7 +154,9 @@ std::string BuildPreviewCss(const theme::ThemeDefinition& theme)
     css += "hr{height:1px;border:0;background:";
     css += ColorToCss(preview.hr);
     css += ";margin:24px 0;}";
-    css += "kbd{font-family:Consolas,monospace;font-size:85%;border:1px solid ";
+    css += "kbd{font-family:";
+    css += codeFont;
+    css += ";font-size:85%;border:1px solid ";
     css += ColorToCss(preview.tableBorder);
     css += ";border-bottom-width:2px;border-radius:4px;padding:1px 5px;background:";
     css += ColorToCss(preview.inlineCodeBg);

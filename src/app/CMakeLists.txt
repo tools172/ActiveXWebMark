@@ -32,6 +32,7 @@ add_executable(awm_app WIN32
     darkmode.cpp
     previewassets.cpp
     themeapply.cpp
+    themedialog.cpp
     dialogs.cpp
     fileassociation.cpp
     filedialogs.cpp

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -15,6 +16,16 @@ struct ThemeColor {
     unsigned char a = 255;
 };
 
+constexpr bool operator==(const ThemeColor& a, const ThemeColor& b)
+{
+    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
+
+constexpr bool operator!=(const ThemeColor& a, const ThemeColor& b)
+{
+    return !(a == b);
+}
+
 constexpr ThemeColor Rgb(int r, int g, int b)
 {
     return ThemeColor{static_cast<unsigned char>(r), static_cast<unsigned char>(g),
@@ -26,6 +37,20 @@ constexpr ThemeColor Rgba(int r, int g, int b, int a)
     return ThemeColor{static_cast<unsigned char>(r), static_cast<unsigned char>(g),
                       static_cast<unsigned char>(b), static_cast<unsigned char>(a)};
 }
+
+/// Typography for the rendered Markdown document. Empty font names select the
+/// built-in stacks. All sizes are CSS pixels.
+struct ThemeTypography {
+    std::string bodyFont;
+    std::string codeFont;
+    int bodySize = 15;
+    double lineHeight = 1.75;
+    int maxWidth = 980;
+    int padTop = 32;
+    int padRight = 40;
+    int padBottom = 64;
+    int codeSize = 13;
+};
 
 /// Colors used by the custom-drawn main window chrome.
 struct ChromeColors {
@@ -130,9 +155,11 @@ enum class ThemeFamily {
     Multicolor,
 };
 
+inline constexpr int kThemeFamilyCount = 8;
+
 struct ThemeDefinition {
-    const char* id = "";
-    const char* displayName = "";
+    std::string id;
+    std::string displayName;
     bool dark = false;
     ChromeColors chrome;
     PreviewColors preview;
@@ -140,8 +167,17 @@ struct ThemeDefinition {
     EditorScheme editor;
     /// Original author or organization (not the project the values were
     /// imported from).
-    const char* author = "";
+    std::string author;
     ThemeFamily family = ThemeFamily::Neutral;
+    /// True for themes loaded from the user's themes directory.
+    bool userDefined = false;
+    /// Import provenance ("VS Code Marketplace: publisher.extension@1.2.3").
+    std::string source;
+    /// License reported by the source package, shown for attribution.
+    std::string license;
+    ThemeTypography typography;
+    /// Sanitized additional Markdown CSS authored by the user.
+    std::string extraCss;
 };
 
 /// Themes grouped by a display label, in catalog-index order. Used by the
@@ -159,11 +195,26 @@ struct FamilyThemeGroup {
 
 inline constexpr const char* kDefaultThemeId = "github-light";
 
+/// User themes are appended after the built-ins. The menu command range and
+/// the catalog reserve space for this many of them.
+inline constexpr std::size_t kMaxUserThemes = 459;
+
 const std::vector<ThemeDefinition>& AllThemes();
 const ThemeDefinition& DefaultTheme();
 const ThemeDefinition* FindTheme(std::string_view id);
 const ThemeDefinition& ResolveTheme(const std::string& id);
 int IndexOfTheme(std::string_view id);
+
+/// Number of compiled-in themes. User themes always follow them in
+/// AllThemes(), so built-in indices stay stable.
+std::size_t BuiltinThemeCount();
+
+/// Replaces the user-theme tail of the catalog. Built-in themes are never
+/// touched. Increments CatalogGeneration().
+void SetUserThemes(std::vector<ThemeDefinition> themes);
+void ClearUserThemes();
+unsigned CatalogGeneration();
+const std::vector<ThemeDefinition>& UserThemes();
 
 /// Catalog indices for the light/dark menu lists, in catalog order.
 std::vector<int> LightThemeIndices();
@@ -191,5 +242,10 @@ ThemeColor Over(const ThemeColor& fg, const ThemeColor& bg);
 
 double RelativeLuminance(const ThemeColor& color);
 double ContrastRatio(const ThemeColor& a, const ThemeColor& b);
+
+/// Returns an opaque color at least `minRatio` away from `bg`. Imported theme
+/// files are authored for their own renderer and occasionally land just below
+/// WCAG AA after alpha flattening; this nudges only those colors.
+ThemeColor EnsureContrast(ThemeColor fg, const ThemeColor& bg, double minRatio);
 
 } // namespace awm::theme

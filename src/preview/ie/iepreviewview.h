@@ -62,6 +62,7 @@ public:
     HWND hwnd() const override { return ax_.IsWindow() ? ax_.m_hWnd : nullptr; }
     void Destroy() override;
     void SetBounds(const RECT& rc) override;
+    void SetLiveBounds(const RECT& rc) override;
     void Show(bool visible) override;
 
     void SetHtml(const std::string& html, const std::string& baseUrl) override;

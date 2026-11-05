@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/tools172/ActiveXWebMark/main/docs/awmtheme.schema.json",
+  "title": "ActiveXWebMark theme",
+  "description": "Markdown-first theme description. Colors under \"markdown\" drive the preview, editor and window chrome; optional \"ui\"/\"overrides\" refine the derived non-Markdown surfaces.",
+  "type": "object",
+  "required": ["schemaVersion", "name", "markdown"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "id": {
+      "type": "string",
+      "description": "Stable theme id. New themes normally let the app generate a user- prefixed id."
+    },
+    "name": { "type": "string", "minLength": 1 },
+    "author": { "type": "string" },
+    "license": {
+      "type": "string",
+      "description": "License reported by the source package, shown for attribution."
+    },
+    "source": {
+      "type": "string",
+      "description": "Import provenance, e.g. \"VS Code Marketplace: publisher.extension@1.2.3\"."
+    },
+    "dark": {
+      "type": "boolean",
+      "description": "Omit to derive from the background luminance."
+    },
+    "family": {
+      "enum": ["Neutral", "Blue", "Cyan", "Green", "Warm", "RedPink", "Purple", "Multicolor"],
+      "description": "Omit to derive from the accent hue."
+    },
+    "markdown": {
+      "type": "object",
+      "required": ["background", "text"],
+      "properties": {
+        "background": { "$ref": "#/$defs/color" },
+        "text": { "$ref": "#/$defs/color" },
+        "muted": { "$ref": "#/$defs/color" },
+        "accent": { "$ref": "#/$defs/color" },
+        "link": { "$ref": "#/$defs/color" },
+        "border": { "$ref": "#/$defs/color" },
+        "hr": { "$ref": "#/$defs/color" },
+        "strong": { "$ref": "#/$defs/color" },
+        "emphasis": { "$ref": "#/$defs/color" },
+        "listMarker": { "$ref": "#/$defs/color" },
+        "danger": { "$ref": "#/$defs/color" },
+        "selection": { "$ref": "#/$defs/color" },
+        "codeBackground": { "$ref": "#/$defs/color" },
+        "codeText": { "$ref": "#/$defs/color" },
+        "codeBorder": { "$ref": "#/$defs/color" },
+        "tableBorder": { "$ref": "#/$defs/color" },
+        "tableHeadBackground": { "$ref": "#/$defs/color" },
+        "findMatch": { "$ref": "#/$defs/color" },
+        "findCurrent": { "$ref": "#/$defs/color" },
+        "findText": { "$ref": "#/$defs/color" },
+        "sidebarBackground": { "$ref": "#/$defs/color" },
+        "sidebarHover": { "$ref": "#/$defs/color" },
+        "headings": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": { "$ref": "#/$defs/color" }
+        },
+        "blockquote": {
+          "type": "object",
+          "properties": {
+            "text": { "$ref": "#/$defs/color" },
+            "border": { "$ref": "#/$defs/color" }
+          }
+        },
+        "code": {
+          "type": "object",
+          "properties": {
+            "background": { "$ref": "#/$defs/color" },
+            "text": { "$ref": "#/$defs/color" },
+            "border": { "$ref": "#/$defs/color" }
+          }
+        },
+        "table": {
+          "type": "object",
+          "properties": {
+            "border": { "$ref": "#/$defs/color" },
+            "headBackground": { "$ref": "#/$defs/color" }
+          }
+        },
+        "find": {
+          "type": "object",
+          "properties": {
+            "match": { "$ref": "#/$defs/color" },
+            "current": { "$ref": "#/$defs/color" },
+            "text": { "$ref": "#/$defs/color" }
+          }
+        },
+        "sidebar": {
+          "type": "object",
+          "properties": {
+            "background": { "$ref": "#/$defs/color" },
+            "hover": { "$ref": "#/$defs/color" }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "tokens": {
+      "type": "object",
+      "properties": {
+        "comment": { "$ref": "#/$defs/color" },
+        "punctuation": { "$ref": "#/$defs/color" },
+        "tag": { "$ref": "#/$defs/color" },
+        "property": { "$ref": "#/$defs/color" },
+        "booleanNumber": { "$ref": "#/$defs/color" },
+        "string": { "$ref": "#/$defs/color" },
+        "operator": { "$ref": "#/$defs/color" },
+        "function": { "$ref": "#/$defs/color" },
+        "keyword": { "$ref": "#/$defs/color" },
+        "regex": { "$ref": "#/$defs/color" }
+      },
+      "additionalProperties": true
+    },
+    "typography": {
+      "type": "object",
+      "properties": {
+        "bodyFont": { "type": "string" },
+        "codeFont": { "type": "string" },
+        "bodySize": { "type": "integer", "minimum": 8, "maximum": 48 },
+        "lineHeight": { "type": "number", "minimum": 1.0, "maximum": 3.0 },
+        "maxWidth": { "type": "integer", "minimum": 320, "maximum": 2400 },
+        "padding": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": { "type": "integer", "minimum": 0, "maximum": 200 }
+        },
+        "codeSize": { "type": "integer", "minimum": 8, "maximum": 32 }
+      },
+      "additionalProperties": true
+    },
+    "extraCss": {
+      "type": "string",
+      "description": "Advanced Markdown CSS. v1 rejects @, (, ), <, >, backslashes and comments; max 16 KB."
+    },
+    "ui": {
+      "type": "object",
+      "description": "Optional explicit window-chrome colors. Unset fields are derived from the Markdown colors.",
+      "properties": {
+        "windowBg": { "$ref": "#/$defs/color" },
+        "surface": { "$ref": "#/$defs/color" },
+        "navBg": { "$ref": "#/$defs/color" },
+        "titleBarBg": { "$ref": "#/$defs/color" },
+        "titleBarInactive": { "$ref": "#/$defs/color" },
+        "tabHover": { "$ref": "#/$defs/color" },
+        "buttonHover": { "$ref": "#/$defs/color" },
+        "buttonPressed": { "$ref": "#/$defs/color" },
+        "divider": { "$ref": "#/$defs/color" },
+        "textPrimary": { "$ref": "#/$defs/color" },
+        "textSecondary": { "$ref": "#/$defs/color" },
+        "accent": { "$ref": "#/$defs/color" },
+        "accentSoft": { "$ref": "#/$defs/color" },
+        "gutterBg": { "$ref": "#/$defs/color" },
+        "currentLine": { "$ref": "#/$defs/color" },
+        "selection": { "$ref": "#/$defs/color" },
+        "danger": { "$ref": "#/$defs/color" },
+        "dirtyDot": { "$ref": "#/$defs/color" }
+      },
+      "additionalProperties": false
+    },
+    "overrides": {
+      "type": "object",
+      "description": "Advanced sparse overrides for built-in export (chrome.*, preview.*, editor.*). Normal user themes do not need this.",
+      "additionalProperties": { "$ref": "#/$defs/color" }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "color": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+        },
+        {
+          "type": "string",
+          "pattern": "^rgba?\\([^)]*\\)$"
+        },
+        {
+          "type": "string",
+          "enum": [
+            "black", "white", "red", "green", "blue", "yellow", "orange",
+            "purple", "gray", "grey", "silver", "navy", "teal", "transparent"
+          ]
+        }
+      ]
+    }
+  }
+}

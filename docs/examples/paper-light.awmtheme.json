@@ -1,0 +1,21 @@
+{
+  "$schema": "../awmtheme.schema.json",
+  "schemaVersion": 1,
+  "name": "Paper Light",
+  "author": "ActiveXWebMark",
+  "license": "MIT",
+  "dark": false,
+  "markdown": {
+    "background": "#fbfaf7",
+    "text": "#2b2b2b",
+    "accent": "#8a5a2b",
+    "link": "#8a5a2b"
+  },
+  "typography": {
+    "bodyFont": "Georgia,'Times New Roman',serif",
+    "codeFont": "Consolas,monospace",
+    "bodySize": 16,
+    "lineHeight": 1.8,
+    "maxWidth": 880
+  }
+}

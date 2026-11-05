@@ -39,6 +39,10 @@ public:
     /// Destroys the native control and unhooks events. Safe to call twice.
     virtual void Destroy() = 0;
     virtual void SetBounds(const RECT& rc) = 0;
+    /// Resizes during an interactive drag. Engines may use a lighter path than
+    /// SetBounds() (for example, skipping scroll restoration and background
+    /// erase) to keep live splitter dragging smooth. The default delegates.
+    virtual void SetLiveBounds(const RECT& rc) { SetBounds(rc); }
     virtual void Show(bool visible) = 0;
 
     /// Replaces the rendered document.

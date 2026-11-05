@@ -20,6 +20,8 @@
 #include "resource.h"
 #include "scintillaeditor.h"
 #include "themeapply.h"
+#include "themedialog.h"
+#include "theme/theme_store.h"
 #include "update/updatedialog.h"
 #include "util/pathutil.h"
 #include "util/stringutil.h"
@@ -241,6 +243,8 @@ MainWindow::MainWindow() : registry_(DocumentFormatRegistry::createDefault())
 {
     theme_.initialize(96);
     settings_ = createSettings();
+    // Must happen before LoadViewSettings(): ui.theme may name a user theme.
+    ReloadUserThemes();
     if (settings_ != nullptr) {
         recent_.load(*settings_, "history.recentFiles");
         viewSettings_ = LoadViewSettings(*settings_);
@@ -560,7 +564,25 @@ void MainWindow::AppendThemeGroup(HMENU parent, const std::wstring& label,
 
 void MainWindow::BuildThemeMenu()
 {
+    if (themeMenu_ == nullptr) {
+        return;
+    }
+
+    // Rebuildable: DeleteMenu on popup items destroys their submenus too.
+    while (::GetMenuItemCount(themeMenu_) > 0) {
+        ::DeleteMenu(themeMenu_, 0, MF_BYPOSITION);
+    }
     themeMenuGroups_.clear();
+
+    std::vector<int> custom;
+    const std::vector<theme::ThemeDefinition>& all = theme::AllThemes();
+    for (std::size_t i = theme::BuiltinThemeCount(); i < all.size(); ++i) {
+        custom.push_back(static_cast<int>(i));
+    }
+    if (!custom.empty()) {
+        AppendThemeGroup(themeMenu_, L"自定义主题(&M)", custom);
+        ::AppendMenuW(themeMenu_, MF_SEPARATOR, 0, nullptr);
+    }
 
     AppendThemeGroup(themeMenu_, L"浅色主题(&L)", theme::LightThemeIndices());
     AppendThemeGroup(themeMenu_, L"深色主题(&D)", theme::DarkThemeIndices());
@@ -584,6 +606,10 @@ void MainWindow::BuildThemeMenu()
         ::AppendMenuW(themeMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(byFamily),
                       L"按色系(&C)");
     }
+
+    ::AppendMenuW(themeMenu_, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(themeMenu_, MF_STRING, cmd::kViewThemeSettings, L"主题设置(&S)...");
+    themeMenuGeneration_ = theme::CatalogGeneration();
 }
 
 void MainWindow::UpdateThemeMenuChecks()
@@ -1353,6 +1379,15 @@ void MainWindow::ApplyViewSettingsToAll()
         view->SetViewSettings(viewSettings_);
     }
     Layout();
+}
+
+void MainWindow::ReloadUserThemes()
+{
+    theme::ThemeStoreLoadResult loaded = theme::LoadThemeStore(themesDirectory());
+    themeLoadErrors_ = std::move(loaded.errors);
+    theme::SetUserThemes(theme::DefinitionsOf(loaded.themes));
+    // Force the next popup (or explicit rebuild) to use the new indices.
+    themeMenuGeneration_ = 0;
 }
 
 void MainWindow::ApplyTheme(const theme::ThemeDefinition& definition, bool persist)
@@ -2153,6 +2188,11 @@ LRESULT MainWindow::OnTestTitleBarState(UINT, WPARAM wParam, LPARAM lParam, BOOL
 
 LRESULT MainWindow::OnInitMenuPopup(UINT, WPARAM, LPARAM, BOOL&)
 {
+    // The catalog can change after importing/deleting a theme. Rebuild before
+    // showing the menu so command ids still match catalog indices.
+    if (themeMenu_ != nullptr && theme::CatalogGeneration() != themeMenuGeneration_) {
+        BuildThemeMenu();
+    }
     UpdateMenuState();
     return 0;
 }
@@ -2308,6 +2348,36 @@ LRESULT MainWindow::OnViewTheme(WORD, WORD wID, HWND, BOOL&)
         return 0;
     }
     ApplyTheme(themes[static_cast<std::size_t>(index)], true);
+    return 0;
+}
+
+LRESULT MainWindow::OnViewThemeSettings(WORD, WORD, HWND, BOOL&)
+{
+    const ThemeDialogResult result = ThemeDialog::ShowModal(
+        m_hWnd, viewSettings_.theme, themesDirectory(), &previewAssets_, theme_.palette());
+
+    if (result.catalogChanged) {
+        ReloadUserThemes();
+        BuildThemeMenu();
+    }
+
+    bool applied = false;
+    if (result.applyRequested && !result.selectedThemeId.empty() &&
+        theme::FindTheme(result.selectedThemeId) != nullptr) {
+        ApplyTheme(theme::ResolveTheme(result.selectedThemeId), true);
+        applied = true;
+    } else if (!result.savedThemeId.empty() &&
+               result.savedThemeId == viewSettings_.theme &&
+               theme::FindTheme(result.savedThemeId) != nullptr) {
+        // Saved edits to the currently active theme: refresh the existing
+        // surfaces without switching to a different theme.
+        ApplyTheme(theme::ResolveTheme(result.savedThemeId), true);
+        applied = true;
+    }
+    if (!applied && theme::FindTheme(viewSettings_.theme) == nullptr) {
+        ApplyTheme(theme::DefaultTheme(), true);
+    }
+    UpdateMenuState();
     return 0;
 }
 

@@ -22,4 +22,8 @@ std::unique_ptr<ISettings> createSettings();
 /// %LOCALAPPDATA%\ActiveXWebMark (or AWM_SETTINGS_DIR) location.
 std::filesystem::path updateDirectory();
 
+/// Directory containing user theme files (`*.awmtheme.json`). Lives next to
+/// the settings file, so AWM_SETTINGS_DIR isolates tests and portable runs.
+std::filesystem::path themesDirectory();
+
 } // namespace awm

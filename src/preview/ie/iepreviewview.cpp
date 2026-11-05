@@ -148,6 +148,34 @@ void IePreviewView::SetBounds(const RECT& rc)
     }
 }
 
+void IePreviewView::SetLiveBounds(const RECT& rc)
+{
+    if (!ax_.IsWindow()) {
+        return;
+    }
+
+    const bool boundsChanged = rc.left != lastBounds_.left || rc.top != lastBounds_.top ||
+                               rc.right != lastBounds_.right ||
+                               rc.bottom != lastBounds_.bottom;
+    if (!boundsChanged) {
+        return;
+    }
+
+    // Live splitter drag path: move/resize without copy-bits, background erase
+    // or per-frame scroll restoration. The final SetBounds() restores scroll
+    // and performs the full redraw.
+    ::SetWindowPos(ax_.m_hWnd, nullptr, rc.left, rc.top, rc.right - rc.left,
+                   rc.bottom - rc.top,
+                   SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
+    lastBounds_ = rc;
+    scrollMapDirty_ = true;
+
+    // The ATL host does not always repaint the inner MSHTML surface on resize.
+    // Invalidate without RDW_ERASE to avoid a white flash.
+    ::RedrawWindow(ax_.m_hWnd, nullptr, nullptr,
+                   RDW_INVALIDATE | RDW_ALLCHILDREN);
+}
+
 void IePreviewView::Show(bool visible)
 {
     if (ax_.IsWindow()) {

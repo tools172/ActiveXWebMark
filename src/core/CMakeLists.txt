@@ -12,6 +12,14 @@ add_library(awm_core STATIC
     markdown/previewcss.cpp
     markdown/previewhtml.cpp
     theme/theme_catalog.cpp
+    theme/theme_source.cpp
+    theme/theme_json.cpp
+    theme/theme_store.cpp
+    theme/theme_import.cpp
+    theme/vscode_theme_import.cpp
+    theme/tmtheme_import.cpp
+    theme/base16_import.cpp
+    theme/vsix_import.cpp
     session/document_session.cpp
     highlight/pmhhighlighter.cpp
     highlight/stylemerge.cpp
@@ -23,6 +31,8 @@ add_library(awm_core STATIC
     util/pathutil.cpp
     # PEG Markdown Highlight parser (vendored in third_party/; C sources).
     ${CMAKE_SOURCE_DIR}/third_party/peg-markdown-highlight/pmh_parser.c
+    # Zip/deflate reader for VSIX theme packages (MIT/public domain).
+    ${CMAKE_SOURCE_DIR}/third_party/miniz/miniz.c
 )
 
 # AWM_VERSION_STRING is computed once in the top-level CMakeLists.txt: the
@@ -31,7 +41,9 @@ target_compile_definitions(awm_core PRIVATE AWM_VERSION_STRING="${AWM_VERSION_ST
 
 target_include_directories(awm_core
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
-    PRIVATE ${CMAKE_SOURCE_DIR}/third_party/peg-markdown-highlight
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/peg-markdown-highlight
+        ${CMAKE_SOURCE_DIR}/third_party/miniz
 )
 
 # Discount + cmark (Markdown engines) and nlohmann-json (settings) from vcpkg.
@@ -43,6 +55,10 @@ find_package(nlohmann_json CONFIG REQUIRED)
 # /W4; compile them at a quieter level.
 set_source_files_properties(
     ${CMAKE_SOURCE_DIR}/third_party/peg-markdown-highlight/pmh_parser.c
+    PROPERTIES COMPILE_OPTIONS "/W3;/wd4996;/wd4267"
+)
+set_source_files_properties(
+    ${CMAKE_SOURCE_DIR}/third_party/miniz/miniz.c
     PROPERTIES COMPILE_OPTIONS "/W3;/wd4996;/wd4267"
 )
 
