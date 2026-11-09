@@ -33,7 +33,8 @@
 - **代码复制**：鼠标悬停在预览中的代码块时显示半透明复制图标，悬停图标显示“复制”提示，
   点击即可把该代码块的纯文本内容复制到剪贴板，无需手动选中。
 - **自定义主题**：“视图 → 主题 → 主题设置...”可新建、复制、编辑、导入、删除和
-  导出主题，并带真实 Markdown 预览。支持导入 VS Code Color Theme JSON/JSONC
+  导出主题，并带真实 Markdown 预览与窗口外观预览（可切换、可展开）。支持导入
+  VS Code Color Theme JSON/JSONC
   （含 `include` 与 `tokenColors`）、VSIX 主题包、TextMate `.tmTheme` 和
   Base16/Base24。用户主题保存在 `%LOCALAPPDATA%\ActiveXWebMark\themes\`，
   格式与 Schema 见 [docs/themes.md](docs/themes.md) 和
