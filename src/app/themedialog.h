@@ -65,6 +65,7 @@ public:
         MESSAGE_HANDLER(WM_CTLCOLORLISTBOX, OnCtlColorListBox)
         MESSAGE_HANDLER(WM_DRAWITEM, OnDrawItem)
         MESSAGE_HANDLER(WM_MEASUREITEM, OnMeasureItem)
+        MESSAGE_HANDLER(WM_NOTIFY, OnNotify)
         NOTIFY_HANDLER(kThemeListId, LVN_ITEMCHANGED, OnThemeSelectionChanged)
         NOTIFY_HANDLER(kTabsId, TCN_SELCHANGE, OnTabSelChange)
     END_MSG_MAP()
@@ -120,6 +121,12 @@ private:
 
     struct DerivedRow {
         const wchar_t* label;
+        /// Human-readable derivation rule shown in the row tooltip.
+        const wchar_t* derivation;
+        /// Override key ("chrome.*" / "editor.*") that can make this value
+        /// explicitly authored instead of derived. Null when the value cannot
+        /// be overridden.
+        const char* overrideKey;
         std::function<theme::ThemeColor(const theme::ThemeDefinition&)> access;
     };
 
@@ -146,6 +153,12 @@ private:
     void PaintChromeMock(HDC dc, const RECT& area);
     void RenderPreview();
     void SchedulePreview();
+    std::wstring BuildDerivedTooltip(const DerivedRow& row) const;
+    /// Updates the tooltip text for the derived row under the cursor. Called
+    /// on every mouse move over the derived list, before the event is relayed.
+    void UpdateDerivedTooltipAt(HWND list);
+    static LRESULT CALLBACK DerivedListSubclassProc(HWND, UINT, WPARAM, LPARAM,
+                                                    UINT_PTR, DWORD_PTR);
 
     int MinUpperHeight() const;
     int ClampSplitTop(int y, int* contentTop = nullptr, int* span = nullptr) const;
@@ -182,8 +195,10 @@ private:
     LRESULT OnCtlColorListBox(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnDrawItem(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnMeasureItem(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnNotify(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnThemeSelectionChanged(int, LPNMHDR, BOOL&);
     LRESULT OnTabSelChange(int, LPNMHDR, BOOL&);
+    LRESULT OnTooltipNeedText(int, LPNMHDR, BOOL&);
 
     ui::Theme theme_;
     ui::Palette palette_;
@@ -231,6 +246,7 @@ private:
     CStatic hintLabel_;
     CStatic status_;
     ui::Splitter splitter_;
+    CToolTipCtrl tooltip_;
     std::unique_ptr<IPreviewView> preview_;
 
     std::string currentThemeId_;
@@ -266,6 +282,7 @@ private:
     RECT splitterRect_ = {};
     RECT chromeMockRect_ = {};
     RECT previewRect_ = {};
+    std::wstring tooltipText_;
     double upperRatio_ = 0.58;
 };
 

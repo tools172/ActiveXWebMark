@@ -167,6 +167,52 @@ std::wstring JoinFirst(const std::vector<std::string>& messages)
     return result;
 }
 
+using UiColorField = std::optional<theme::ThemeColor> theme::UiOverrides::*;
+
+struct UiOverrideEntry {
+    const char* key;
+    UiColorField field;
+};
+
+const UiOverrideEntry kUiOverrideEntries[] = {
+    {"chrome.windowBg", &theme::UiOverrides::windowBg},
+    {"chrome.surface", &theme::UiOverrides::surface},
+    {"chrome.navBg", &theme::UiOverrides::navBg},
+    {"chrome.titleBarBg", &theme::UiOverrides::titleBarBg},
+    {"chrome.titleBarInactive", &theme::UiOverrides::titleBarInactive},
+    {"chrome.tabHover", &theme::UiOverrides::tabHover},
+    {"chrome.buttonHover", &theme::UiOverrides::buttonHover},
+    {"chrome.buttonPressed", &theme::UiOverrides::buttonPressed},
+    {"chrome.divider", &theme::UiOverrides::divider},
+    {"chrome.textPrimary", &theme::UiOverrides::textPrimary},
+    {"chrome.textSecondary", &theme::UiOverrides::textSecondary},
+    {"chrome.accent", &theme::UiOverrides::accent},
+    {"chrome.accentSoft", &theme::UiOverrides::accentSoft},
+    {"chrome.gutterBg", &theme::UiOverrides::gutterBg},
+    {"chrome.currentLine", &theme::UiOverrides::currentLine},
+    {"chrome.selection", &theme::UiOverrides::selection},
+    {"chrome.danger", &theme::UiOverrides::danger},
+    {"chrome.dirtyDot", &theme::UiOverrides::dirtyDot},
+};
+
+/// Removes the explicit override that could make a derived row differ from the
+/// value computed from the Markdown colors. The derived-color tooltip uses this
+/// to tell an authored value apart from one that still follows the base colors.
+void ClearDerivedOverride(theme::ThemeSource& source, const char* key)
+{
+    if (key == nullptr) {
+        return;
+    }
+    const std::string_view wanted(key);
+    for (const UiOverrideEntry& entry : kUiOverrideEntries) {
+        if (wanted == entry.key) {
+            (source.ui.*(entry.field)).reset();
+            break;
+        }
+    }
+    source.overrides.erase(std::string(wanted));
+}
+
 } // namespace
 
 ThemeDialog::ThemeDialog(std::string currentThemeId, std::filesystem::path themesDirectory,
@@ -592,143 +638,140 @@ void ThemeDialog::CreateChildren()
     colorRow(L"Token 正则", theme::field::kTokens,
              [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.tokens.regex; });
 
-    const auto derived = [this](const wchar_t* label,
+    const auto derived = [this](const wchar_t* label, const wchar_t* derivation,
+                                const char* overrideKey,
                                 std::function<theme::ThemeColor(
                                     const theme::ThemeDefinition&)> access) {
-        derivedRows_.push_back({label, std::move(access)});
+        derivedRows_.push_back({label, derivation, overrideKey, std::move(access)});
     };
-    derived(L"窗口 · 窗口背景", [](const theme::ThemeDefinition& d) {
-        return d.chrome.windowBg;
-    });
-    derived(L"窗口 · 表面", [](const theme::ThemeDefinition& d) {
-        return d.chrome.surface;
-    });
-    derived(L"窗口 · 导航背景", [](const theme::ThemeDefinition& d) {
-        return d.chrome.navBg;
-    });
-    derived(L"窗口 · 标题栏", [](const theme::ThemeDefinition& d) {
-        return d.chrome.titleBarBg;
-    });
-    derived(L"窗口 · 非活动标题栏", [](const theme::ThemeDefinition& d) {
-        return d.chrome.titleBarInactive;
-    });
-    derived(L"窗口 · 标签悬停", [](const theme::ThemeDefinition& d) {
-        return d.chrome.tabHover;
-    });
-    derived(L"窗口 · 按钮悬停", [](const theme::ThemeDefinition& d) {
-        return d.chrome.buttonHover;
-    });
-    derived(L"窗口 · 按钮按下", [](const theme::ThemeDefinition& d) {
-        return d.chrome.buttonPressed;
-    });
-    derived(L"窗口 · 分隔线", [](const theme::ThemeDefinition& d) {
-        return d.chrome.divider;
-    });
-    derived(L"窗口 · 主文字", [](const theme::ThemeDefinition& d) {
-        return d.chrome.textPrimary;
-    });
-    derived(L"窗口 · 次级文字", [](const theme::ThemeDefinition& d) {
-        return d.chrome.textSecondary;
-    });
-    derived(L"窗口 · 强调色", [](const theme::ThemeDefinition& d) {
-        return d.chrome.accent;
-    });
-    derived(L"窗口 · 强调浅底", [](const theme::ThemeDefinition& d) {
-        return d.chrome.accentSoft;
-    });
-    derived(L"窗口 · 行号背景", [](const theme::ThemeDefinition& d) {
-        return d.chrome.gutterBg;
-    });
-    derived(L"窗口 · 当前行", [](const theme::ThemeDefinition& d) {
-        return d.chrome.currentLine;
-    });
-    derived(L"窗口 · 选中", [](const theme::ThemeDefinition& d) {
-        return d.chrome.selection;
-    });
-    derived(L"窗口 · 危险色", [](const theme::ThemeDefinition& d) {
-        return d.chrome.danger;
-    });
-    derived(L"窗口 · 脏标记", [](const theme::ThemeDefinition& d) {
-        return d.chrome.dirtyDot;
-    });
+    derived(L"窗口 · 窗口背景", L"由“侧栏背景”叠加在 Markdown“背景”上。",
+            "chrome.windowBg", [](const theme::ThemeDefinition& d) {
+                return d.chrome.windowBg;
+            });
+    derived(L"窗口 · 表面", L"取 Markdown 预览的“背景”。", "chrome.surface",
+            [](const theme::ThemeDefinition& d) { return d.chrome.surface; });
+    derived(L"窗口 · 导航背景", L"与“窗口背景”相同。", "chrome.navBg",
+            [](const theme::ThemeDefinition& d) { return d.chrome.navBg; });
+    derived(L"窗口 · 标题栏", L"与“窗口背景”相同。", "chrome.titleBarBg",
+            [](const theme::ThemeDefinition& d) { return d.chrome.titleBarBg; });
+    derived(L"窗口 · 非活动标题栏", L"“窗口背景”与 Markdown“背景”按 35% 混合。",
+            "chrome.titleBarInactive", [](const theme::ThemeDefinition& d) {
+                return d.chrome.titleBarInactive;
+            });
+    derived(L"窗口 · 标签悬停", L"由“侧栏悬停”叠加在“窗口背景”上。",
+            "chrome.tabHover", [](const theme::ThemeDefinition& d) {
+                return d.chrome.tabHover;
+            });
+    derived(L"窗口 · 按钮悬停", L"与“标签悬停”相同。", "chrome.buttonHover",
+            [](const theme::ThemeDefinition& d) { return d.chrome.buttonHover; });
+    derived(L"窗口 · 按钮按下", L"“标签悬停”与 Markdown“正文”按 8% 混合。",
+            "chrome.buttonPressed", [](const theme::ThemeDefinition& d) {
+                return d.chrome.buttonPressed;
+            });
+    derived(L"窗口 · 分隔线", L"取 Markdown 的“表格边框”。", "chrome.divider",
+            [](const theme::ThemeDefinition& d) { return d.chrome.divider; });
+    derived(L"窗口 · 主文字", L"取 Markdown 的“正文”。", "chrome.textPrimary",
+            [](const theme::ThemeDefinition& d) { return d.chrome.textPrimary; });
+    derived(L"窗口 · 次级文字",
+            L"“正文”与“背景”按 15% 混合；用户主题会再做 3:1 对比度校正。",
+            "chrome.textSecondary", [](const theme::ThemeDefinition& d) {
+                return d.chrome.textSecondary;
+            });
+    derived(L"窗口 · 强调色", L"取 Markdown 的“强调色”。", "chrome.accent",
+            [](const theme::ThemeDefinition& d) { return d.chrome.accent; });
+    derived(L"窗口 · 强调浅底", L"“背景”与“强调色”按 12% 混合。",
+            "chrome.accentSoft", [](const theme::ThemeDefinition& d) {
+                return d.chrome.accentSoft;
+            });
+    derived(L"窗口 · 行号背景", L"“背景”与“正文”按 3% 混合。",
+            "chrome.gutterBg", [](const theme::ThemeDefinition& d) {
+                return d.chrome.gutterBg;
+            });
+    derived(L"窗口 · 当前行", L"“背景”与“强调色”按 6% 混合。",
+            "chrome.currentLine", [](const theme::ThemeDefinition& d) {
+                return d.chrome.currentLine;
+            });
+    derived(L"窗口 · 选中", L"由“选中背景”叠加在 Markdown“背景”上。",
+            "chrome.selection", [](const theme::ThemeDefinition& d) {
+                return d.chrome.selection;
+            });
+    derived(L"窗口 · 危险色", L"取 Markdown 的“危险色”。", "chrome.danger",
+            [](const theme::ThemeDefinition& d) { return d.chrome.danger; });
+    derived(L"窗口 · 脏标记", L"取 Markdown 的“强调色”。", "chrome.dirtyDot",
+            [](const theme::ThemeDefinition& d) { return d.chrome.dirtyDot; });
 
-    derived(L"编辑器 · 背景", [](const theme::ThemeDefinition& d) {
-        return d.editor.background;
-    });
-    derived(L"编辑器 · 正文", [](const theme::ThemeDefinition& d) {
-        return d.editor.text;
-    });
-    derived(L"编辑器 · 标题", [](const theme::ThemeDefinition& d) {
-        return d.editor.heading;
-    });
-    derived(L"编辑器 · 强调", [](const theme::ThemeDefinition& d) {
-        return d.editor.emphasis;
-    });
-    derived(L"编辑器 · 粗体", [](const theme::ThemeDefinition& d) {
-        return d.editor.strong;
-    });
-    derived(L"编辑器 · 行内代码", [](const theme::ThemeDefinition& d) {
-        return d.editor.code;
-    });
-    derived(L"编辑器 · 代码块", [](const theme::ThemeDefinition& d) {
-        return d.editor.codeBlock;
-    });
-    derived(L"编辑器 · 链接", [](const theme::ThemeDefinition& d) {
-        return d.editor.link;
-    });
-    derived(L"编辑器 · 图片", [](const theme::ThemeDefinition& d) {
-        return d.editor.image;
-    });
-    derived(L"编辑器 · 列表标记", [](const theme::ThemeDefinition& d) {
-        return d.editor.listMarker;
-    });
-    derived(L"编辑器 · 引用", [](const theme::ThemeDefinition& d) {
-        return d.editor.blockQuote;
-    });
-    derived(L"编辑器 · HTML", [](const theme::ThemeDefinition& d) {
-        return d.editor.html;
-    });
-    derived(L"编辑器 · 分隔线", [](const theme::ThemeDefinition& d) {
-        return d.editor.hrule;
-    });
-    derived(L"编辑器 · 注释", [](const theme::ThemeDefinition& d) {
-        return d.editor.comment;
-    });
-    derived(L"编辑器 · 引用标记", [](const theme::ThemeDefinition& d) {
-        return d.editor.reference;
-    });
-    derived(L"编辑器 · 行号背景", [](const theme::ThemeDefinition& d) {
-        return d.editor.gutterBg;
-    });
-    derived(L"编辑器 · 行号文字", [](const theme::ThemeDefinition& d) {
-        return d.editor.gutterText;
-    });
-    derived(L"编辑器 · 当前行", [](const theme::ThemeDefinition& d) {
-        return d.editor.currentLine;
-    });
-    derived(L"编辑器 · 选中背景", [](const theme::ThemeDefinition& d) {
-        return d.editor.selection;
-    });
-    derived(L"编辑器 · 选中文字", [](const theme::ThemeDefinition& d) {
-        return d.editor.selectionText;
-    });
-    derived(L"编辑器 · 光标", [](const theme::ThemeDefinition& d) {
-        return d.editor.caret;
-    });
+    derived(L"编辑器 · 背景", L"取 Markdown 预览的“背景”。", "editor.background",
+            [](const theme::ThemeDefinition& d) { return d.editor.background; });
+    derived(L"编辑器 · 正文", L"取 Markdown 的“正文”。", "editor.text",
+            [](const theme::ThemeDefinition& d) { return d.editor.text; });
+    derived(L"编辑器 · 标题", L"取 Markdown 的“标题 2”。", "editor.heading",
+            [](const theme::ThemeDefinition& d) { return d.editor.heading; });
+    derived(L"编辑器 · 强调", L"取 Markdown 的“正文”。", "editor.emphasis",
+            [](const theme::ThemeDefinition& d) { return d.editor.emphasis; });
+    derived(L"编辑器 · 粗体", L"取 Markdown 的“粗体”。", "editor.strong",
+            [](const theme::ThemeDefinition& d) { return d.editor.strong; });
+    derived(L"编辑器 · 行内代码", L"取 Markdown 的“代码文字”。", "editor.code",
+            [](const theme::ThemeDefinition& d) { return d.editor.code; });
+    derived(L"编辑器 · 代码块", L"取 Markdown 的“代码文字”。", "editor.codeBlock",
+            [](const theme::ThemeDefinition& d) { return d.editor.codeBlock; });
+    derived(L"编辑器 · 链接", L"取 Markdown 的“链接”。", "editor.link",
+            [](const theme::ThemeDefinition& d) { return d.editor.link; });
+    derived(L"编辑器 · 图片", L"取 Markdown 的“链接”。", "editor.image",
+            [](const theme::ThemeDefinition& d) { return d.editor.image; });
+    derived(L"编辑器 · 列表标记", L"取 Markdown 的“列表标记”。", "editor.listMarker",
+            [](const theme::ThemeDefinition& d) { return d.editor.listMarker; });
+    derived(L"编辑器 · 引用", L"取 Markdown 的“引用文字”。", "editor.blockQuote",
+            [](const theme::ThemeDefinition& d) { return d.editor.blockQuote; });
+    derived(L"编辑器 · HTML", L"取 Markdown 的“弱化文字”。", "editor.html",
+            [](const theme::ThemeDefinition& d) { return d.editor.html; });
+    derived(L"编辑器 · 分隔线", L"取 Markdown 的“分隔线”。", "editor.hrule",
+            [](const theme::ThemeDefinition& d) { return d.editor.hrule; });
+    derived(L"编辑器 · 注释", L"取 Markdown 的“弱化文字”。", "editor.comment",
+            [](const theme::ThemeDefinition& d) { return d.editor.comment; });
+    derived(L"编辑器 · 引用标记", L"取“窗口 · 强调色”。", "editor.reference",
+            [](const theme::ThemeDefinition& d) { return d.editor.reference; });
+    derived(L"编辑器 · 行号背景", L"取“窗口 · 行号背景”。", "editor.gutterBg",
+            [](const theme::ThemeDefinition& d) { return d.editor.gutterBg; });
+    derived(L"编辑器 · 行号文字", L"取“窗口 · 次级文字”。", "editor.gutterText",
+            [](const theme::ThemeDefinition& d) { return d.editor.gutterText; });
+    derived(L"编辑器 · 当前行", L"取“窗口 · 当前行”。", "editor.currentLine",
+            [](const theme::ThemeDefinition& d) { return d.editor.currentLine; });
+    derived(L"编辑器 · 选中背景", L"取“窗口 · 选中”。", "editor.selection",
+            [](const theme::ThemeDefinition& d) { return d.editor.selection; });
+    derived(L"编辑器 · 选中文字", L"取 Markdown 的“正文”。", "editor.selectionText",
+            [](const theme::ThemeDefinition& d) { return d.editor.selectionText; });
+    derived(L"编辑器 · 光标", L"取“窗口 · 强调色”。", "editor.caret",
+            [](const theme::ThemeDefinition& d) { return d.editor.caret; });
 
-    derived(L"滚动条 · 轨道", [](const theme::ThemeDefinition& d) {
-        return d.preview.pageBg;
-    });
-    derived(L"滚动条 · 滑块", [](const theme::ThemeDefinition& d) {
-        return theme::Blend(d.preview.pageBg, d.preview.pageText, 0.28);
-    });
-    derived(L"滚动条 · 箭头", [](const theme::ThemeDefinition& d) {
-        return d.chrome.textSecondary;
-    });
+    derived(L"滚动条 · 轨道", L"取 Markdown 预览的“背景”。", nullptr,
+            [](const theme::ThemeDefinition& d) { return d.preview.pageBg; });
+    derived(L"滚动条 · 滑块", L"“背景”与“正文”按 28% 混合。", nullptr,
+            [](const theme::ThemeDefinition& d) {
+                return theme::Blend(d.preview.pageBg, d.preview.pageText, 0.28);
+            });
+    derived(L"滚动条 · 箭头", L"取“窗口 · 次级文字”。", nullptr,
+            [](const theme::ThemeDefinition& d) { return d.chrome.textSecondary; });
 
     for (std::size_t i = 0; i < derivedRows_.size(); ++i) {
         const int item = derivedList_.AddString(L"");
         derivedList_.SetItemData(item, static_cast<DWORD_PTR>(i));
+    }
+
+    // Per-row tooltips explain where each derived color comes from. The list is
+    // owner-drawn, so the text is resolved on demand from the row under the
+    // cursor (TTN_NEEDTEXT).
+    tooltip_.Create(m_hWnd, nullptr, nullptr,
+                    WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX);
+    if (tooltip_.IsWindow()) {
+        // Relay the list's mouse messages explicitly: the tooltip spans the
+        // whole list box (one tool), so the row under the cursor is resolved on
+        // each mouse move.
+        CToolInfo info(TTF_IDISHWND, derivedList_.m_hWnd);
+        info.lpszText = LPSTR_TEXTCALLBACK;
+        tooltip_.AddTool(info);
+        ::SendMessageW(tooltip_.m_hWnd, TTM_SETMAXTIPWIDTH, 0, theme_.px(520));
+        ::SetWindowSubclass(derivedList_.m_hWnd, DerivedListSubclassProc, 1,
+                            reinterpret_cast<DWORD_PTR>(this));
     }
 
     preview_ = CreatePreviewView(PreviewEngine::Ie);
@@ -767,6 +810,13 @@ void ThemeDialog::ApplyThemeToDialog()
     ui::SetThemedScrollbar(themeList_.m_hWnd, MakeScrollbarColors(palette_));
     ui::SetThemedScrollbar(colorList_.m_hWnd, MakeScrollbarColors(palette_));
     ui::SetThemedScrollbar(extraCssEdit_.m_hWnd, MakeScrollbarColors(palette_));
+    if (tooltip_.IsWindow()) {
+        ApplyColorModeToWindow(tooltip_.m_hWnd, mode);
+        ::SendMessageW(tooltip_.m_hWnd, TTM_SETTIPBKCOLOR, 0,
+                       static_cast<LPARAM>(ui::ToColorRef(palette_.surface)));
+        ::SendMessageW(tooltip_.m_hWnd, TTM_SETTIPTEXTCOLOR, 0,
+                       static_cast<LPARAM>(ui::ToColorRef(palette_.textPrimary)));
+    }
     splitter_.SetTheme(&theme_);
     Invalidate(TRUE);
 }
@@ -986,7 +1036,7 @@ void ThemeDialog::UpdateHint()
     if (tabs_.IsWindow() && tabs_.GetCurSel() == 3) {
         hintLabel_.SetWindowTextW(
             L"窗口外壳、编辑器和滚动条颜色由 Markdown 配色自动派生，只读；"
-            L"编辑“配色/排版”后会更新。");
+            L"悬停某一行可查看该颜色的来源与计算规则。");
         return;
     }
 
@@ -2302,6 +2352,148 @@ LRESULT ThemeDialog::OnThemeSelectionChanged(int, LPNMHDR header, BOOL&)
 LRESULT ThemeDialog::OnTabSelChange(int, LPNMHDR, BOOL&)
 {
     Layout();
+    return 0;
+}
+
+std::wstring ThemeDialog::BuildDerivedTooltip(const DerivedRow& row) const
+{
+    const theme::ThemeColor actual = row.access(previewDefinition_);
+    std::wstring text = row.label;
+    text += L"    ";
+    text += utf8ToWide(theme::ColorToCss(actual));
+
+    // A field can be authored explicitly (theme file `ui`/`overrides`) instead
+    // of following the Markdown colors. Rebuild the definition without that
+    // override to find out which of the two cases applies.
+    bool derived = true;
+    if (row.overrideKey != nullptr) {
+        theme::ThemeSource base = draft_;
+        ClearDerivedOverride(base, row.overrideKey);
+        const theme::ThemeDefinition reference =
+            theme::BuildDefinition(base, true);
+        derived = row.access(reference) == actual;
+    }
+
+    text += L"\n";
+    if (derived) {
+        text += L"来源：";
+        text += row.derivation;
+    } else {
+        text += L"该值由主题文件显式指定，不随 Markdown 配色自动派生。\n默认规则：";
+        text += row.derivation;
+    }
+    return text;
+}
+
+void ThemeDialog::UpdateDerivedTooltipAt(HWND list)
+{
+    if (!tooltip_.IsWindow() || list == nullptr) {
+        return;
+    }
+    POINT point = {};
+    ::GetCursorPos(&point);
+    ::ScreenToClient(list, &point);
+    const LRESULT hit = ::SendMessageW(list, LB_ITEMFROMPOINT, 0,
+                                       MAKELPARAM(point.x, point.y));
+    std::wstring text;
+    if (HIWORD(hit) == 0) {
+        const int item = static_cast<int>(LOWORD(hit));
+        if (item >= 0) {
+            const int row = static_cast<int>(derivedList_.GetItemData(item));
+            if (row >= 0 && static_cast<std::size_t>(row) < derivedRows_.size()) {
+                text = BuildDerivedTooltip(derivedRows_[static_cast<std::size_t>(row)]);
+            }
+        }
+    }
+    if (text == tooltipText_ && !text.empty()) {
+        return;
+    }
+    tooltipText_ = std::move(text);
+
+    TOOLINFO tool = {};
+    tool.cbSize = sizeof(tool);
+    tool.uFlags = TTF_IDISHWND;
+    tool.hwnd = m_hWnd;
+    tool.uId = reinterpret_cast<UINT_PTR>(derivedList_.m_hWnd);
+    tool.lpszText = const_cast<wchar_t*>(tooltipText_.c_str());
+    ::SendMessageW(tooltip_.m_hWnd, TTM_UPDATETIPTEXT, 0,
+                   reinterpret_cast<LPARAM>(&tool));
+}
+
+LRESULT CALLBACK ThemeDialog::DerivedListSubclassProc(HWND hwnd, UINT message,
+                                                     WPARAM wParam, LPARAM lParam,
+                                                     UINT_PTR, DWORD_PTR refData)
+{
+    auto* self = reinterpret_cast<ThemeDialog*>(refData);
+    if (self != nullptr && self->tooltip_.IsWindow()) {
+        switch (message) {
+        case WM_MOUSEMOVE:
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_MOUSELEAVE: {
+            if (message == WM_MOUSEMOVE) {
+                self->UpdateDerivedTooltipAt(hwnd);
+            }
+            MSG relay = {};
+            relay.hwnd = hwnd;
+            relay.message = message;
+            relay.wParam = wParam;
+            relay.lParam = lParam;
+            ::SendMessageW(self->tooltip_.m_hWnd, TTM_RELAYEVENT, 0,
+                           reinterpret_cast<LPARAM>(&relay));
+            break;
+        }
+        default:
+            break;
+        }
+    }
+    return ::DefSubclassProc(hwnd, message, wParam, lParam);
+}
+
+LRESULT ThemeDialog::OnNotify(UINT, WPARAM, LPARAM lParam, BOOL& handled)
+{
+    auto* header = reinterpret_cast<NMHDR*>(lParam);
+    if (header != nullptr && tooltip_.IsWindow() &&
+        header->hwndFrom == tooltip_.m_hWnd &&
+        (header->code == TTN_NEEDTEXTA || header->code == TTN_NEEDTEXTW)) {
+        BOOL unused = TRUE;
+        OnTooltipNeedText(0, header, unused);
+        return 0;
+    }
+    handled = FALSE;
+    return 0;
+}
+
+LRESULT ThemeDialog::OnTooltipNeedText(int, LPNMHDR header, BOOL&)
+{
+    auto* info = reinterpret_cast<NMTTDISPINFOW*>(header);
+    if (info == nullptr) {
+        return 0;
+    }
+    info->hinst = nullptr;
+    info->lpszText = const_cast<wchar_t*>(L"");
+    if (header->hwndFrom != tooltip_.m_hWnd || !derivedList_.IsWindow()) {
+        return 0;
+    }
+
+    POINT point = {};
+    ::GetCursorPos(&point);
+    ::ScreenToClient(derivedList_.m_hWnd, &point);
+    const LRESULT hit = ::SendMessageW(derivedList_.m_hWnd, LB_ITEMFROMPOINT, 0,
+                                       MAKELPARAM(point.x, point.y));
+    if (HIWORD(hit) != 0) {
+        return 0;
+    }
+    const int item = static_cast<int>(LOWORD(hit));
+    if (item < 0) {
+        return 0;
+    }
+    const int row = static_cast<int>(derivedList_.GetItemData(item));
+    if (row < 0 || static_cast<std::size_t>(row) >= derivedRows_.size()) {
+        return 0;
+    }
+    tooltipText_ = BuildDerivedTooltip(derivedRows_[static_cast<std::size_t>(row)]);
+    info->lpszText = const_cast<wchar_t*>(tooltipText_.c_str());
     return 0;
 }
 
