@@ -2420,20 +2420,33 @@ LRESULT MainWindow::OnViewTheme(WORD, WORD wID, HWND, BOOL&)
 
 LRESULT MainWindow::OnViewThemeSettings(WORD, WORD, HWND, BOOL&)
 {
+    // "立即使用此主题" applies while the dialog stays open, so the live window
+    // and the dialog preview stay in step throughout an editing session.
+    const auto applyDuringDialog = [this](const std::string& themeId) {
+        if (theme::FindTheme(themeId) == nullptr) {
+            return;
+        }
+        ReloadUserThemes();
+        BuildThemeMenu();
+        ApplyTheme(theme::ResolveTheme(themeId), true);
+    };
+
     const ThemeDialogResult result = ThemeDialog::ShowModal(
-        m_hWnd, viewSettings_.theme, themesDirectory(), &previewAssets_, theme_.palette());
+        m_hWnd, viewSettings_.theme, themesDirectory(), &previewAssets_,
+        theme_.palette(), applyDuringDialog);
 
     if (result.catalogChanged) {
         ReloadUserThemes();
         BuildThemeMenu();
     }
 
-    bool applied = false;
-    if (result.applyRequested && !result.selectedThemeId.empty() &&
+    bool applied = result.appliedWhileOpen;
+    if (result.applyRequested && !result.appliedWhileOpen &&
+        !result.selectedThemeId.empty() &&
         theme::FindTheme(result.selectedThemeId) != nullptr) {
         ApplyTheme(theme::ResolveTheme(result.selectedThemeId), true);
         applied = true;
-    } else if (!result.savedThemeId.empty() &&
+    } else if (!applied && !result.savedThemeId.empty() &&
                result.savedThemeId == viewSettings_.theme &&
                theme::FindTheme(result.savedThemeId) != nullptr) {
         // Saved edits to the currently active theme: refresh the existing

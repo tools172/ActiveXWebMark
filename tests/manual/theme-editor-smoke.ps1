@@ -182,6 +182,15 @@ try {
     }
     Check ($dialog -ne [IntPtr]::Zero) "theme settings window created"
     if ($dialog -ne [IntPtr]::Zero) {
+        # The window becomes enumerable before CreateChildren() finishes; wait
+        # for the page controls used below instead of racing their creation.
+        $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            if ([AwmThemeEditorSmoke]::GetDlgItem($dialog, 207) -ne [IntPtr]::Zero) {
+                break
+            }
+            Start-Sleep -Milliseconds 50
+        }
         $tabs = [AwmThemeEditorSmoke]::GetDlgItem($dialog, 202)
         $themeList = [AwmThemeEditorSmoke]::GetDlgItem($dialog, 201)
         $colorList = [AwmThemeEditorSmoke]::GetDlgItem($dialog, 207)
@@ -212,6 +221,13 @@ try {
         [void][AwmThemeEditorSmoke]::PostMessage($themeList, 0x0101, [IntPtr]0x23, [IntPtr]::Zero)
         Start-Sleep -Milliseconds 400
         Check ([AwmThemeEditorSmoke]::IsWindowEnabled($saveButton)) "save is enabled for user themes"
+
+        # Saving keeps the dialog open so the user can keep tuning.
+        [void][AwmThemeEditorSmoke]::SendMessage($saveButton, 0x00F5, [IntPtr]::Zero,
+            [IntPtr]::Zero)
+        Start-Sleep -Milliseconds 800
+        $openAfterSave = [AwmThemeEditorSmoke]::FindByPid([uint32]$proc.Id, "AwmThemeDialog")
+        Check ($openAfterSave -ne [IntPtr]::Zero) "save keeps the theme settings window open"
 
         [void][AwmThemeEditorSmoke]::PostMessage($dialog, 0x0111, [IntPtr]2, [IntPtr]::Zero)
         Start-Sleep -Milliseconds 600

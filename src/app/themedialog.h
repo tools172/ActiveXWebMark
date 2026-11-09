@@ -23,6 +23,9 @@ namespace awm {
 struct ThemeDialogResult {
     /// True when the user explicitly asked to switch to the selected theme.
     bool applyRequested = false;
+    /// True when that theme was already applied while the dialog was open, so
+    /// the owner must not apply it a second time when the dialog closes.
+    bool appliedWhileOpen = false;
     bool catalogChanged = false;
     /// Theme id to apply when applyRequested is true.
     std::string selectedThemeId;
@@ -38,10 +41,15 @@ public:
 
     ~ThemeDialog() override;
 
+    /// Called when the user clicks "立即使用此主题". Applying while the dialog
+    /// stays open lets the owner update the live window behind it.
+    using ApplyCallback = std::function<void(const std::string& themeId)>;
+
     static ThemeDialogResult ShowModal(HWND owner, const std::string& currentThemeId,
                                        const std::filesystem::path& themesDirectory,
                                        const PreviewAssets* previewAssets,
-                                       const ui::Palette& palette);
+                                       const ui::Palette& palette,
+                                       ApplyCallback onApply = {});
 
     BEGIN_MSG_MAP(ThemeDialog)
         MESSAGE_HANDLER(WM_SIZE, OnSize)
@@ -116,7 +124,8 @@ private:
     };
 
     ThemeDialog(std::string currentThemeId, std::filesystem::path themesDirectory,
-                const PreviewAssets* previewAssets, ui::Palette palette);
+                const PreviewAssets* previewAssets, ui::Palette palette,
+                ApplyCallback onApply);
 
     bool CreateModalWindow(HWND owner);
     void CreateChildren();
@@ -227,6 +236,7 @@ private:
     std::string currentThemeId_;
     std::filesystem::path themesDirectory_;
     const PreviewAssets* previewAssets_ = nullptr;
+    ApplyCallback onApply_;
     std::vector<theme::StoredTheme> userThemes_;
     std::vector<ColorRow> colorRows_;
     std::vector<DerivedRow> derivedRows_;
@@ -248,6 +258,8 @@ private:
     bool suppressFieldChanges_ = false;
     std::string selectedThemeId_;
     std::string savedThemeId_;
+    /// Theme applied through "立即使用此主题" while the dialog stayed open.
+    std::string appliedThemeId_;
     COLORREF customColors_[16] = {};
 
     RECT pageRect_ = {};

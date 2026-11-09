@@ -170,11 +170,13 @@ std::wstring JoinFirst(const std::vector<std::string>& messages)
 } // namespace
 
 ThemeDialog::ThemeDialog(std::string currentThemeId, std::filesystem::path themesDirectory,
-                         const PreviewAssets* previewAssets, ui::Palette palette)
+                         const PreviewAssets* previewAssets, ui::Palette palette,
+                         ApplyCallback onApply)
     : palette_(palette),
       currentThemeId_(std::move(currentThemeId)),
       themesDirectory_(std::move(themesDirectory)),
-      previewAssets_(previewAssets)
+      previewAssets_(previewAssets),
+      onApply_(std::move(onApply))
 {
     for (COLORREF& color : customColors_) {
         color = RGB(255, 255, 255);
@@ -200,9 +202,10 @@ ThemeDialog::~ThemeDialog()
 ThemeDialogResult ThemeDialog::ShowModal(HWND owner, const std::string& currentThemeId,
                                          const std::filesystem::path& themesDirectory,
                                          const PreviewAssets* previewAssets,
-                                         const ui::Palette& palette)
+                                         const ui::Palette& palette, ApplyCallback onApply)
 {
-    ThemeDialog dialog(currentThemeId, themesDirectory, previewAssets, palette);
+    ThemeDialog dialog(currentThemeId, themesDirectory, previewAssets, palette,
+                       std::move(onApply));
     if (!dialog.CreateModalWindow(owner)) {
         return {};
     }
@@ -222,8 +225,10 @@ ThemeDialogResult ThemeDialog::ShowModal(HWND owner, const std::string& currentT
 
     ThemeDialogResult result;
     result.applyRequested = dialog.applyRequested_;
+    result.appliedWhileOpen = !dialog.appliedThemeId_.empty();
     result.catalogChanged = dialog.catalogChanged_;
-    result.selectedThemeId = dialog.selectedThemeId_;
+    result.selectedThemeId = result.appliedWhileOpen ? dialog.appliedThemeId_
+                                                     : dialog.selectedThemeId_;
     result.savedThemeId = dialog.savedThemeId_;
     return result;
 }
@@ -312,11 +317,12 @@ void ThemeDialog::CreateChildren()
                          WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0,
                          kExportId);
     saveButton_.Create(m_hWnd, zero, L"保存(&S)",
-                       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0, IDOK);
+                       WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON, 0,
+                       IDOK);
     applyButton_.Create(m_hWnd, zero, L"立即使用此主题(&U)",
                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0,
                         kApplyId);
-    cancelButton_.Create(m_hWnd, zero, L"取消",
+    cancelButton_.Create(m_hWnd, zero, L"关闭(&C)",
                          WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0,
                          IDCANCEL);
 
@@ -975,11 +981,12 @@ void ThemeDialog::UpdateHint()
 
     std::wstring hint;
     if (isBuiltin_) {
-        hint = L"内置主题只读，可浏览配色与派生色；点击“立即使用此主题”切换。";
+        hint = L"内置主题只读，可浏览配色与派生色；点“立即使用此主题”切换，窗口不会关闭。";
     } else if (currentIndex_ < 0) {
-        hint = L"新主题：“保存”只写入文件；“立即使用此主题”保存并切换。";
+        hint = L"新主题：“保存”写入文件并保持窗口打开；“立即使用此主题”保存并立即应用。";
     } else {
-        hint = L"编辑后“保存”只写入文件；“立即使用此主题”保存并切换。";
+        hint = L"“保存”写入文件并保持窗口打开；“立即使用此主题”保存并立即应用；"
+               L"“关闭”结束。";
     }
     hintLabel_.SetWindowTextW(hint.c_str());
 }
@@ -1278,27 +1285,8 @@ void ThemeDialog::OnOk()
 {
     if (isBuiltin_) {
         // Nothing to save for a read-only built-in theme. "保存" is disabled
-        // in that state; if it is invoked anyway, just close.
-        applyRequested_ = false;
-        CloseDialog();
-        return;
-    }
-
-    std::string savedId;
-    if (!SaveCurrentTheme(savedId)) {
-        return;
-    }
-    savedThemeId_ = savedId;
-    applyRequested_ = false;
-    CloseDialog();
-}
-
-void ThemeDialog::OnApply()
-{
-    if (isBuiltin_) {
-        applyRequested_ = true;
-        selectedThemeId_ = draft_.id;
-        CloseDialog();
+        // in that state; if it is invoked anyway, keep browsing.
+        SetStatus(L"内置主题只读；可点“立即使用此主题”切换，或“复制”后再编辑。");
         return;
     }
 
@@ -1308,8 +1296,30 @@ void ThemeDialog::OnApply()
     }
     savedThemeId_ = savedId;
     selectedThemeId_ = savedId;
+    // Keep the dialog open so the user can keep tuning after saving.
+    SetStatus(L"已保存主题“" + utf8ToWide(draft_.name) + L"”。");
+}
+
+void ThemeDialog::OnApply()
+{
+    std::string themeId = draft_.id;
+    if (!isBuiltin_) {
+        std::string savedId;
+        if (!SaveCurrentTheme(savedId)) {
+            return;
+        }
+        savedThemeId_ = savedId;
+        themeId = savedId;
+    }
+    selectedThemeId_ = themeId;
+    appliedThemeId_ = themeId;
     applyRequested_ = true;
-    CloseDialog();
+    // The owner applies the theme while this dialog stays open, so the live
+    // window and the dialog preview never disagree.
+    if (onApply_) {
+        onApply_(themeId);
+    }
+    SetStatus(L"已应用此主题；可继续调整，“关闭”结束。");
 }
 
 bool ThemeDialog::SaveCurrentTheme(std::string& savedId)
