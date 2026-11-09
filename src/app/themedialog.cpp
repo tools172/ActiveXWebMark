@@ -951,13 +951,21 @@ void ThemeDialog::ReadControlsIntoDraft()
 void ThemeDialog::UpdateEditorEnabledState()
 {
     const BOOL editable = isBuiltin_ ? FALSE : TRUE;
-    CWindow* controls[] = {&nameEdit_,     &authorEdit_,   &darkCheck_,
-                           &familyCombo_,  &editColorButton_, &bodyFontEdit_,
-                           &codeFontEdit_, &bodySizeEdit_,  &lineHeightEdit_,
-                           &maxWidthEdit_, &codeSizeEdit_,  &extraCssEdit_};
-    for (CWindow* control : controls) {
-        ::EnableWindow(control->m_hWnd, editable);
+    // Built-in themes cannot be edited, but their text must stay selectable and
+    // copyable. Keep the fields enabled and switch them to read-only instead of
+    // disabling them outright (a disabled edit box cannot be selected).
+    CEdit* edits[] = {&nameEdit_,      &authorEdit_,  &bodyFontEdit_,
+                      &codeFontEdit_,  &bodySizeEdit_, &lineHeightEdit_,
+                      &maxWidthEdit_,  &codeSizeEdit_, &extraCssEdit_};
+    for (CEdit* edit : edits) {
+        edit->SetReadOnly(isBuiltin_ ? TRUE : FALSE);
+        ::EnableWindow(edit->m_hWnd, TRUE);
     }
+    // A read-only combo box or checkbox would still accept changes, so those
+    // remain disabled for built-ins.
+    ::EnableWindow(darkCheck_.m_hWnd, editable);
+    ::EnableWindow(familyCombo_.m_hWnd, editable);
+    ::EnableWindow(editColorButton_.m_hWnd, editable);
     // A disabled list box cannot scroll. Keep both color tables enabled even
     // for read-only built-ins; editing is blocked by EditSelectedColor().
     ::EnableWindow(colorList_.m_hWnd, TRUE);
@@ -981,7 +989,8 @@ void ThemeDialog::UpdateHint()
 
     std::wstring hint;
     if (isBuiltin_) {
-        hint = L"内置主题只读，可浏览配色与派生色；点“立即使用此主题”切换，窗口不会关闭。";
+        hint = L"内置主题只读：字段可选中、复制，但不能修改；"
+               L"点“复制”可另存为可编辑主题。";
     } else if (currentIndex_ < 0) {
         hint = L"新主题：“保存”写入文件并保持窗口打开；“立即使用此主题”保存并立即应用。";
     } else {
