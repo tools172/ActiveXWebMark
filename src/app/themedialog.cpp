@@ -864,7 +864,10 @@ void ThemeDialog::LoadThemeIntoEditor(int catalogIndex)
         }
     }
     if (!loaded) {
-        draft_ = theme::SourceFromDefinition(definition, false);
+        // Built-ins may hand-tune chrome/editor colors that do not follow the
+        // Markdown palette. Keep those explicit values so the window preview
+        // (and the derived-color tooltips) match what "立即使用此主题" applies.
+        draft_ = theme::SourceFromDefinition(definition, true);
     }
 
     dirty_ = false;
