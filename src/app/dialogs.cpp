@@ -283,11 +283,11 @@ void ShowAboutDialog(HWND owner)
     const std::wstring content =
         L"版本 " + versionText + L" (" + build + L")\n"
         L"一个原生 Win32/WTL Markdown 阅读器。\n\n"
-        L"技术栈：C++17 · WTL · Scintilla · cmark · GDI+ · WinHTTP · Mermaid · PlantUML\n"
+        L"技术栈：C++17 · WTL · Scintilla · cmark-gfm · GDI+ · WinHTTP · Mermaid · PlantUML\n"
         L"预览引擎：IE/MSHTML（Mermaid 由 Node + Edge 外挂生成 SVG；PlantUML 本地原生 exe 或远程 Kroki）\n"
         L"Mermaid 需要 Node.js 18+ 与 Edge/Chrome；PlantUML 本地模式不需要 Java。"
         L"缺少时显示原始代码块。\n\n"
-        L"第三方组件：discount (BSD-3)、cmark (BSD-2)、PEG Markdown Highlight (MIT)、"
+        L"第三方组件：discount (BSD-3)、cmark-gfm (BSD-2)、PEG Markdown Highlight (MIT)、"
         L"Scintilla (MIT)、Prism (MIT)、Mermaid (MIT)、puppeteer-core (Apache-2.0)、"
         L"miniz (MIT)、WTL (MS-PL)\n"
         L"主题配色参考 MarkText (MIT)";

@@ -47,9 +47,10 @@ target_include_directories(awm_core
         ${CMAKE_SOURCE_DIR}/third_party/miniz
 )
 
-# Discount + cmark (Markdown engines) and nlohmann-json (settings) from vcpkg.
+# Discount + cmark-gfm (Markdown engines) and nlohmann-json (settings) from vcpkg.
 find_package(discount CONFIG REQUIRED)
-find_package(cmark CONFIG REQUIRED)
+find_package(cmark-gfm CONFIG REQUIRED)
+find_package(cmark-gfm-extensions CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
 # Vendored third-party C sources (generated PEG parser) produce expected noise at
@@ -66,6 +67,7 @@ set_source_files_properties(
 target_link_libraries(awm_core
     PUBLIC
         discount::libmarkdown
-        cmark::cmark_static
+        libcmark-gfm_static
+        libcmark-gfm-extensions_static
         nlohmann_json::nlohmann_json
 )

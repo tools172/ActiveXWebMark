@@ -4,7 +4,7 @@
   "dependencies": [
     "scintilla",
     "discount",
-    "cmark",
+    "cmark-gfm",
     "nlohmann-json",
     "fmt",
     "gtest"

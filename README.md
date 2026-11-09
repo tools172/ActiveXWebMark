@@ -1,7 +1,7 @@
 # ActiveXWebMark
 
 一个原生 Win32/WTL Markdown 阅读器（阅读优先，可切换编辑视图），使用 Scintilla
-编辑、cmark 渲染、IE/MSHTML 预览。
+编辑、cmark-gfm 渲染、IE/MSHTML 预览。
 
 ## 特性
 
@@ -81,7 +81,7 @@
 
 ## 技术栈
 
-C++17 · WTL 10 · Scintilla · cmark（CommonMark） · discount · IE/MSHTML 预览 ·
+C++17 · WTL 10 · Scintilla · cmark-gfm（CommonMark + GFM 表格） · discount · IE/MSHTML 预览 ·
 PrismJS 1.29（代码高亮，MIT） · Mermaid 11（图表渲染，MIT） ·
 PlantUML（本地原生 exe 或远程 Kroki） · puppeteer-core（Mermaid 外挂，Apache-2.0） ·
 miniz（VSIX ZIP 读取，MIT） · GDI+ 自绘 · WinHTTP（更新检查与下载） ·
@@ -231,7 +231,7 @@ PlantUML SVG 缓存在 `%LOCALAPPDATA%\ActiveXWebMark\diagram-cache\`，可安�
 
 安装包脚本位于 `packaging/`：`wix/ActiveXWebMark.wxs`（WiX v5）、
 `nsis/ActiveXWebMark.nsi`（NSIS）。CI 通过 `vcpkg-configuration.json` 里声明的
-overlay ports（`vcpkg-ports/`）复现本机的 discount `/J`、cmark/Scintilla 静态化补丁。
+overlay ports（`vcpkg-ports/`）复现本机的 discount `/J`、cmark-gfm/Scintilla 静态化补丁。
 
 应用内更新读取 GitHub Releases API 的 latest release，优先下载 `*-setup.exe`，其次
 `.msi`；因此每次发布都应附带这两类安装包（当前工作流会自动生成并上传）。
@@ -303,7 +303,7 @@ PlantUML 原生包下载失败时会打印失败阶段、URL、预期/实际 SHA
 
 ## 许可证
 
-见各源文件头。第三方组件（discount：BSD-3；cmark：BSD-2；PMH：MIT；Scintilla：MIT；
+见各源文件头。第三方组件（discount：BSD-3；cmark-gfm：BSD-2；PMH：MIT；Scintilla：MIT；
 WTL：MS-PL；mermaid：MIT；puppeteer-core：Apache-2.0）分别遵循其自身许可证。
 Node.js 与 Edge/Chrome 由用户环境提供，不随本程序分发。PlantUML headless 原生
 程序随安装包分发（GPLv3 或更高版本，许可证见
