@@ -341,6 +341,19 @@ regex         = Blend(accent, background, 0.25)
   <255° → Blue；<290° → Purple；其余 RedPink。
 - Multicolor 只能由主题显式指定。
 
+#### 显式字段与派生字段
+
+`ThemeSource::explicitFields` 记录哪些颜色是用户/文件显式给出的（字段名与原生
+JSON 相同）。其余颜色只是派生默认值，必须随 `background`/`text`/`accent` 的
+修改重新计算；显式字段保持不变。
+
+- 加载旧版本写的“全量”文件时，用 `MinimizeExplicitFields()` 把恰好等于默认值
+  的字段重新标记为派生，避免旧的派生值被冻结。
+- 保存时只写出显式字段，派生字段省略，下次打开时按规则重新派生。
+- 设置窗口编辑某个颜色后，把它标为显式并调用 `RefreshDerivedFields()` 重算其余
+  字段（以及 `dark`/`family` 的自动推断）。
+- 内置主题导出/复制视为完整快照；其中恰好等于默认值的字段同样按派生处理。
+
 ### 5.2 BuildTheme：预览 / 窗口 / 编辑器
 
 下面以 `pageBg = background`、`pageText = text` 为前提。所有 `Over` 结果不透明。

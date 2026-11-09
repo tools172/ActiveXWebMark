@@ -524,6 +524,9 @@ ThemeLoadResult LoadThemeSourceJson(const std::string& utf8, const std::string& 
     }
 
     result.source = FinalizeSource(std::move(draft));
+    // Older versions persisted every derived color. Without this, editing a
+    // base color later would leave those stale defaults in place.
+    MinimizeExplicitFields(*result.source);
     return result;
 }
 
@@ -559,60 +562,111 @@ std::string ThemeSourceToJson(const ThemeSource& source)
     root["dark"] = source.dark;
     root["family"] = FamilyToString(source.family);
 
+    const auto explicitField = [&source](const char* key) {
+        return source.explicitFields.find(key) != source.explicitFields.end();
+    };
+
+    // Only authored colors are written. Everything else stays out of the file
+    // so it keeps following background/text/accent when those are edited.
     Json markdown;
     markdown["background"] = ColorToCss(source.background);
     markdown["text"] = ColorToCss(source.text);
-    markdown["muted"] = ColorToCss(source.muted);
-    markdown["accent"] = ColorToCss(source.accent);
-    markdown["link"] = ColorToCss(source.link);
-    markdown["border"] = ColorToCss(source.border);
-    markdown["hr"] = ColorToCss(source.hr);
-    markdown["strong"] = ColorToCss(source.strong);
-    markdown["emphasis"] = ColorToCss(source.emphasis);
-    markdown["listMarker"] = ColorToCss(source.listMarker);
-    Json headings = Json::array();
-    for (const ThemeColor& color : source.headings) {
-        headings.push_back(ColorToCss(color));
+    if (explicitField(field::kMuted)) {
+        markdown["muted"] = ColorToCss(source.muted);
     }
-    markdown["headings"] = std::move(headings);
-    markdown["blockquote"] = {
-        {"text", ColorToCss(source.blockquoteText)},
-        {"border", ColorToCss(source.blockquoteBorder)},
+    if (explicitField(field::kAccent)) {
+        markdown["accent"] = ColorToCss(source.accent);
+    }
+    if (explicitField(field::kLink)) {
+        markdown["link"] = ColorToCss(source.link);
+    }
+    if (explicitField(field::kBorder)) {
+        markdown["border"] = ColorToCss(source.border);
+    }
+    if (explicitField(field::kHr)) {
+        markdown["hr"] = ColorToCss(source.hr);
+    }
+    if (explicitField(field::kStrong)) {
+        markdown["strong"] = ColorToCss(source.strong);
+    }
+    if (explicitField(field::kEmphasis)) {
+        markdown["emphasis"] = ColorToCss(source.emphasis);
+    }
+    if (explicitField(field::kListMarker)) {
+        markdown["listMarker"] = ColorToCss(source.listMarker);
+    }
+    if (explicitField(field::kHeadings)) {
+        Json headings = Json::array();
+        for (const ThemeColor& color : source.headings) {
+            headings.push_back(ColorToCss(color));
+        }
+        markdown["headings"] = std::move(headings);
+    }
+
+    const auto writeNested = [&source, &explicitField](Json& object, const char* key,
+                                                       const char* name,
+                                                       const ThemeColor& color) {
+        if (explicitField(key)) {
+            object[name] = ColorToCss(color);
+        }
     };
-    markdown["code"] = {
-        {"background", ColorToCss(source.codeBackground)},
-        {"text", ColorToCss(source.codeText)},
-        {"border", ColorToCss(source.codeBorder)},
-    };
-    markdown["table"] = {
-        {"border", ColorToCss(source.tableBorder)},
-        {"headBackground", ColorToCss(source.tableHeadBackground)},
-    };
-    markdown["selection"] = ColorToCss(source.selection);
-    markdown["find"] = {
-        {"match", ColorToCss(source.findMatch)},
-        {"current", ColorToCss(source.findCurrent)},
-        {"text", ColorToCss(source.findText)},
-    };
-    markdown["sidebar"] = {
-        {"background", ColorToCss(source.sidebarBackground)},
-        {"hover", ColorToCss(source.sidebarHover)},
-    };
-    markdown["danger"] = ColorToCss(source.danger);
+    Json blockquote = Json::object();
+    writeNested(blockquote, field::kBlockquoteText, "text", source.blockquoteText);
+    writeNested(blockquote, field::kBlockquoteBorder, "border",
+                source.blockquoteBorder);
+    if (!blockquote.empty()) {
+        markdown["blockquote"] = std::move(blockquote);
+    }
+    Json code = Json::object();
+    writeNested(code, field::kCodeBackground, "background", source.codeBackground);
+    writeNested(code, field::kCodeText, "text", source.codeText);
+    writeNested(code, field::kCodeBorder, "border", source.codeBorder);
+    if (!code.empty()) {
+        markdown["code"] = std::move(code);
+    }
+    Json table = Json::object();
+    writeNested(table, field::kTableBorder, "border", source.tableBorder);
+    writeNested(table, field::kTableHeadBackground, "headBackground",
+                source.tableHeadBackground);
+    if (!table.empty()) {
+        markdown["table"] = std::move(table);
+    }
+    if (explicitField(field::kSelection)) {
+        markdown["selection"] = ColorToCss(source.selection);
+    }
+    Json find = Json::object();
+    writeNested(find, field::kFindMatch, "match", source.findMatch);
+    writeNested(find, field::kFindCurrent, "current", source.findCurrent);
+    writeNested(find, field::kFindText, "text", source.findText);
+    if (!find.empty()) {
+        markdown["find"] = std::move(find);
+    }
+    Json sidebar = Json::object();
+    writeNested(sidebar, field::kSidebarBackground, "background",
+                source.sidebarBackground);
+    writeNested(sidebar, field::kSidebarHover, "hover", source.sidebarHover);
+    if (!sidebar.empty()) {
+        markdown["sidebar"] = std::move(sidebar);
+    }
+    if (explicitField(field::kDanger)) {
+        markdown["danger"] = ColorToCss(source.danger);
+    }
     root["markdown"] = std::move(markdown);
 
-    root["tokens"] = {
-        {"comment", ColorToCss(source.tokens.comment)},
-        {"punctuation", ColorToCss(source.tokens.punctuation)},
-        {"tag", ColorToCss(source.tokens.tag)},
-        {"property", ColorToCss(source.tokens.property)},
-        {"booleanNumber", ColorToCss(source.tokens.booleanNumber)},
-        {"string", ColorToCss(source.tokens.string)},
-        {"operator", ColorToCss(source.tokens.oper)},
-        {"function", ColorToCss(source.tokens.function)},
-        {"keyword", ColorToCss(source.tokens.keyword)},
-        {"regex", ColorToCss(source.tokens.regex)},
-    };
+    if (explicitField(field::kTokens)) {
+        root["tokens"] = {
+            {"comment", ColorToCss(source.tokens.comment)},
+            {"punctuation", ColorToCss(source.tokens.punctuation)},
+            {"tag", ColorToCss(source.tokens.tag)},
+            {"property", ColorToCss(source.tokens.property)},
+            {"booleanNumber", ColorToCss(source.tokens.booleanNumber)},
+            {"string", ColorToCss(source.tokens.string)},
+            {"operator", ColorToCss(source.tokens.oper)},
+            {"function", ColorToCss(source.tokens.function)},
+            {"keyword", ColorToCss(source.tokens.keyword)},
+            {"regex", ColorToCss(source.tokens.regex)},
+        };
+    }
 
     root["typography"] = {
         {"bodyFont", source.typography.bodyFont},

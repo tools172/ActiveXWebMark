@@ -86,6 +86,114 @@ TEST(ThemeSource, FinalizeDerivesMissingColors)
     EXPECT_FALSE(source.typography.codeFont.empty());
 }
 
+TEST(ThemeSource, SavedFileKeepsDerivedColorsImplicit)
+{
+    ThemeSourceDraft draft;
+    draft.name = "Round Trip";
+    draft.background = Rgb(255, 255, 255);
+    draft.text = Rgb(31, 35, 40);
+    draft.accent = Rgb(9, 105, 218);
+    const ThemeLoadResult reloaded = LoadThemeSourceJson(
+        ThemeSourceToJson(FinalizeSource(std::move(draft))), "round-trip.json");
+    ASSERT_TRUE(reloaded.source.has_value()) << reloaded.error;
+
+    const ThemeSource& source = *reloaded.source;
+    EXPECT_EQ(source.explicitFields.count(field::kBackground), 1u);
+    EXPECT_EQ(source.explicitFields.count(field::kText), 1u);
+    EXPECT_EQ(source.explicitFields.count(field::kAccent), 1u);
+    EXPECT_EQ(source.explicitFields.count(field::kCodeBackground), 0u);
+    EXPECT_EQ(source.explicitFields.count(field::kSidebarBackground), 0u);
+    EXPECT_EQ(source.explicitFields.count(field::kBorder), 0u);
+    EXPECT_EQ(source.explicitFields.count(field::kTokens), 0u);
+
+    // The re-serialized file must not materialize those defaults again.
+    const std::string text = ThemeSourceToJson(source);
+    EXPECT_EQ(text.find("\"code\""), std::string::npos);
+    EXPECT_EQ(text.find("\"sidebar\""), std::string::npos);
+    EXPECT_EQ(text.find("\"tokens\""), std::string::npos);
+}
+
+TEST(ThemeSource, EditingBaseColorRefreshesDerivedColors)
+{
+    ThemeSourceDraft draft;
+    draft.name = "Derived Follow";
+    draft.background = Rgb(255, 255, 255);
+    draft.text = Rgb(31, 35, 40);
+    draft.accent = Rgb(9, 105, 218);
+    const ThemeLoadResult loaded = LoadThemeSourceJson(
+        ThemeSourceToJson(FinalizeSource(std::move(draft))), "follow.json");
+    ASSERT_TRUE(loaded.source.has_value()) << loaded.error;
+
+    ThemeSource edited = *loaded.source;
+    edited.background = Rgb(20, 20, 24);
+    edited = RefreshDerivedFields(edited);
+    const ThemeDefinition definition = BuildDefinition(edited, true);
+
+    EXPECT_LT(definition.preview.codeBlockBg.r, 80);
+    EXPECT_LT(definition.chrome.windowBg.r, 80);
+    EXPECT_LT(definition.preview.border.r, 80);
+    EXPECT_TRUE(definition.dark);
+}
+
+TEST(ThemeSource, ExplicitlyEditedColorStaysFixed)
+{
+    ThemeSourceDraft draft;
+    draft.name = "Explicit";
+    draft.background = Rgb(255, 255, 255);
+    draft.text = Rgb(31, 35, 40);
+    draft.accent = Rgb(9, 105, 218);
+    ThemeSource source = FinalizeSource(std::move(draft));
+
+    source.codeBackground = Rgb(250, 240, 230);
+    source.explicitFields.insert(field::kCodeBackground);
+    source.background = Rgb(15, 15, 18);
+    source = RefreshDerivedFields(source);
+
+    EXPECT_EQ(source.codeBackground, Rgb(250, 240, 230));
+    EXPECT_LT(source.sidebarBackground.r, 80);
+}
+
+TEST(ThemeSource, LegacyMaterializedFileRegainsDerivation)
+{
+    ThemeSourceDraft draft;
+    draft.name = "Legacy";
+    draft.background = Rgb(255, 255, 255);
+    draft.text = Rgb(31, 35, 40);
+    draft.accent = Rgb(9, 105, 218);
+    ThemeSource legacy = FinalizeSource(std::move(draft));
+    // Emulate the files written before derivation was tracked: every color
+    // was materialized as explicit.
+    legacy.explicitFields = {
+        field::kBackground,        field::kText,
+        field::kMuted,             field::kAccent,
+        field::kLink,              field::kBorder,
+        field::kHr,                field::kStrong,
+        field::kEmphasis,          field::kListMarker,
+        field::kHeadings,          field::kBlockquoteText,
+        field::kBlockquoteBorder,  field::kCodeBackground,
+        field::kCodeText,          field::kCodeBorder,
+        field::kTableBorder,       field::kTableHeadBackground,
+        field::kSelection,         field::kFindMatch,
+        field::kFindCurrent,       field::kFindText,
+        field::kSidebarBackground, field::kSidebarHover,
+        field::kDanger,            field::kTokens,
+    };
+
+    const ThemeLoadResult loaded =
+        LoadThemeSourceJson(ThemeSourceToJson(legacy), "legacy.json");
+    ASSERT_TRUE(loaded.source.has_value()) << loaded.error;
+    EXPECT_EQ(loaded.source->explicitFields.count(field::kCodeBackground), 0u);
+    EXPECT_EQ(loaded.source->explicitFields.count(field::kSidebarBackground), 0u);
+    EXPECT_EQ(loaded.source->explicitFields.count(field::kTokens), 0u);
+
+    ThemeSource edited = *loaded.source;
+    edited.background = Rgb(18, 18, 22);
+    edited = RefreshDerivedFields(edited);
+    const ThemeDefinition definition = BuildDefinition(edited, true);
+    EXPECT_LT(definition.preview.codeBlockBg.r, 80);
+    EXPECT_LT(definition.chrome.windowBg.r, 80);
+}
+
 TEST(ThemeSource, UserThemeContrastFloors)
 {
     ThemeSourceDraft draft;

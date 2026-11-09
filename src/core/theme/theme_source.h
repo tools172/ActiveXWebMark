@@ -2,6 +2,7 @@
 
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -34,6 +35,37 @@ struct UiOverrides {
 
     bool any() const;
 };
+
+/// Canonical names of the color fields tracked in ThemeSource::explicitFields.
+/// They double as the corresponding native-JSON keys.
+namespace field {
+inline constexpr char kBackground[] = "background";
+inline constexpr char kText[] = "text";
+inline constexpr char kMuted[] = "muted";
+inline constexpr char kAccent[] = "accent";
+inline constexpr char kLink[] = "link";
+inline constexpr char kBorder[] = "border";
+inline constexpr char kHr[] = "hr";
+inline constexpr char kStrong[] = "strong";
+inline constexpr char kEmphasis[] = "emphasis";
+inline constexpr char kListMarker[] = "listMarker";
+inline constexpr char kHeadings[] = "headings";
+inline constexpr char kBlockquoteText[] = "blockquoteText";
+inline constexpr char kBlockquoteBorder[] = "blockquoteBorder";
+inline constexpr char kCodeBackground[] = "codeBackground";
+inline constexpr char kCodeText[] = "codeText";
+inline constexpr char kCodeBorder[] = "codeBorder";
+inline constexpr char kTableBorder[] = "tableBorder";
+inline constexpr char kTableHeadBackground[] = "tableHeadBackground";
+inline constexpr char kSelection[] = "selection";
+inline constexpr char kFindMatch[] = "findMatch";
+inline constexpr char kFindCurrent[] = "findCurrent";
+inline constexpr char kFindText[] = "findText";
+inline constexpr char kSidebarBackground[] = "sidebarBackground";
+inline constexpr char kSidebarHover[] = "sidebarHover";
+inline constexpr char kDanger[] = "danger";
+inline constexpr char kTokens[] = "tokens";
+} // namespace field
 
 /// Parsed-but-not-yet-normalized theme. Importers and the native JSON loader
 /// fill only what they know; FinalizeSource() derives the rest.
@@ -130,12 +162,30 @@ struct ThemeSource {
     std::string extraCss;
     UiOverrides ui;
     std::map<std::string, ThemeColor> overrides;
+
+    /// Names of the color fields that were authored explicitly (present in a
+    /// file, set by an importer or edited in the settings dialog). Fields not
+    /// in this set are derivation defaults and follow later edits of
+    /// background/text/accent. Keys match the native JSON field names.
+    std::set<std::string> explicitFields;
 };
 
 /// Fills every missing color with a deterministic value derived from
 /// background/text/accent. Throws std::invalid_argument only when the draft
 /// has neither a usable background nor text (callers should validate first).
 ThemeSource FinalizeSource(ThemeSourceDraft draft);
+
+/// Drops explicit markers for colors that match what FinalizeSource() would
+/// derive from background/text/accent alone. Files written by older versions
+/// materialized every derived color; running this after loading lets those
+/// defaults follow later edits again.
+void MinimizeExplicitFields(ThemeSource& source);
+
+/// Rebuilds the source so every field that is not in `explicitFields` is
+/// re-derived from the current background/text/accent. Explicitly authored
+/// fields keep their values. Typography, extraCss, ui and overrides are
+/// carried over unchanged.
+ThemeSource RefreshDerivedFields(const ThemeSource& source);
 
 /// Converts a fully resolved definition back into editable seed data.
 /// includeOverrides=true also records the resolved chrome/editor/preview

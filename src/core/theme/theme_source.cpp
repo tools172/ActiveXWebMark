@@ -157,6 +157,53 @@ std::uint32_t Fnv1a(std::string_view text)
     return hash;
 }
 
+std::set<std::string> ExplicitFieldsOf(const ThemeSourceDraft& draft)
+{
+    std::set<std::string> explicitFields;
+    // background/text are the roots of every derivation and always present.
+    explicitFields.insert(field::kBackground);
+    explicitFields.insert(field::kText);
+
+    const auto mark = [&explicitFields](const std::optional<ThemeColor>& value,
+                                        const char* key) {
+        if (value) {
+            explicitFields.insert(key);
+        }
+    };
+    mark(draft.muted, field::kMuted);
+    mark(draft.accent, field::kAccent);
+    mark(draft.link, field::kLink);
+    mark(draft.border, field::kBorder);
+    mark(draft.hr, field::kHr);
+    mark(draft.strong, field::kStrong);
+    mark(draft.emphasis, field::kEmphasis);
+    mark(draft.listMarker, field::kListMarker);
+    for (const std::optional<ThemeColor>& heading : draft.headings) {
+        if (heading) {
+            explicitFields.insert(field::kHeadings);
+            break;
+        }
+    }
+    mark(draft.blockquoteText, field::kBlockquoteText);
+    mark(draft.blockquoteBorder, field::kBlockquoteBorder);
+    mark(draft.codeBackground, field::kCodeBackground);
+    mark(draft.codeText, field::kCodeText);
+    mark(draft.codeBorder, field::kCodeBorder);
+    mark(draft.tableBorder, field::kTableBorder);
+    mark(draft.tableHeadBackground, field::kTableHeadBackground);
+    mark(draft.selection, field::kSelection);
+    mark(draft.findMatch, field::kFindMatch);
+    mark(draft.findCurrent, field::kFindCurrent);
+    mark(draft.findText, field::kFindText);
+    mark(draft.sidebarBackground, field::kSidebarBackground);
+    mark(draft.sidebarHover, field::kSidebarHover);
+    mark(draft.danger, field::kDanger);
+    if (draft.tokens) {
+        explicitFields.insert(field::kTokens);
+    }
+    return explicitFields;
+}
+
 } // namespace
 
 bool UiOverrides::any() const
@@ -170,6 +217,7 @@ bool UiOverrides::any() const
 ThemeSource FinalizeSource(ThemeSourceDraft draft)
 {
     ThemeSource source;
+    source.explicitFields = ExplicitFieldsOf(draft);
     source.schemaVersion = draft.schemaVersion > 0 ? draft.schemaVersion : 1;
     source.id = std::move(draft.id);
     source.name = std::move(draft.name);
@@ -234,6 +282,196 @@ ThemeSource FinalizeSource(ThemeSourceDraft draft)
     source.ui = draft.ui;
     source.overrides = std::move(draft.overrides);
     return source;
+}
+
+void MinimizeExplicitFields(ThemeSource& source)
+{
+    // Derive the reference from the base colors alone. Any authored field that
+    // happens to equal its default is indistinguishable from a materialized
+    // default, so treat it as derived; the value itself never changes.
+    ThemeSourceDraft referenceDraft;
+    referenceDraft.background = source.background;
+    referenceDraft.text = source.text;
+    referenceDraft.accent = source.accent;
+    referenceDraft.dark = source.dark;
+    const ThemeSource reference = FinalizeSource(std::move(referenceDraft));
+
+    const auto dropIfSame = [&source](const char* key, const ThemeColor& actual,
+                                      const ThemeColor& derived) {
+        if (actual == derived) {
+            source.explicitFields.erase(key);
+        }
+    };
+    dropIfSame(field::kMuted, source.muted, reference.muted);
+    dropIfSame(field::kBorder, source.border, reference.border);
+    dropIfSame(field::kHr, source.hr, reference.hr);
+    dropIfSame(field::kStrong, source.strong, reference.strong);
+    dropIfSame(field::kEmphasis, source.emphasis, reference.emphasis);
+    dropIfSame(field::kListMarker, source.listMarker, reference.listMarker);
+    dropIfSame(field::kBlockquoteText, source.blockquoteText, reference.blockquoteText);
+    dropIfSame(field::kBlockquoteBorder, source.blockquoteBorder,
+               reference.blockquoteBorder);
+    dropIfSame(field::kCodeBackground, source.codeBackground, reference.codeBackground);
+    dropIfSame(field::kCodeText, source.codeText, reference.codeText);
+    dropIfSame(field::kCodeBorder, source.codeBorder, reference.codeBorder);
+    dropIfSame(field::kTableBorder, source.tableBorder, reference.tableBorder);
+    dropIfSame(field::kTableHeadBackground, source.tableHeadBackground,
+               reference.tableHeadBackground);
+    dropIfSame(field::kSelection, source.selection, reference.selection);
+    dropIfSame(field::kFindMatch, source.findMatch, reference.findMatch);
+    dropIfSame(field::kFindCurrent, source.findCurrent, reference.findCurrent);
+    dropIfSame(field::kFindText, source.findText, reference.findText);
+    dropIfSame(field::kSidebarBackground, source.sidebarBackground,
+               reference.sidebarBackground);
+    dropIfSame(field::kSidebarHover, source.sidebarHover, reference.sidebarHover);
+    dropIfSame(field::kDanger, source.danger, reference.danger);
+
+    bool headingsMatch = true;
+    for (int i = 0; i < 6 && headingsMatch; ++i) {
+        headingsMatch = source.headings[i] == reference.headings[i];
+    }
+    if (headingsMatch) {
+        source.explicitFields.erase(field::kHeadings);
+    }
+
+    if (source.tokens.comment == reference.tokens.comment &&
+        source.tokens.punctuation == reference.tokens.punctuation &&
+        source.tokens.tag == reference.tokens.tag &&
+        source.tokens.property == reference.tokens.property &&
+        source.tokens.booleanNumber == reference.tokens.booleanNumber &&
+        source.tokens.string == reference.tokens.string &&
+        source.tokens.oper == reference.tokens.oper &&
+        source.tokens.function == reference.tokens.function &&
+        source.tokens.keyword == reference.tokens.keyword &&
+        source.tokens.regex == reference.tokens.regex) {
+        source.explicitFields.erase(field::kTokens);
+    }
+
+    // link defaults to accent; when both were materialized at the same value
+    // it is safe to let link follow later accent edits again.
+    if (source.explicitFields.count(field::kAccent) != 0 &&
+        source.link == source.accent) {
+        source.explicitFields.erase(field::kLink);
+    }
+
+    // dark/family are inferred from background/accent unless a theme really
+    // curates them; old files always wrote the inferred values.
+    if (source.darkExplicit &&
+        source.dark == (RelativeLuminance(source.background) < 0.5)) {
+        source.darkExplicit = false;
+    }
+    if (source.familyExplicit && source.family == DeriveFamily(source.accent)) {
+        source.familyExplicit = false;
+    }
+}
+
+ThemeSource RefreshDerivedFields(const ThemeSource& source)
+{
+    const auto has = [&source](const char* key) {
+        return source.explicitFields.find(key) != source.explicitFields.end();
+    };
+
+    ThemeSourceDraft draft;
+    draft.schemaVersion = source.schemaVersion;
+    draft.id = source.id;
+    draft.name = source.name;
+    draft.author = source.author;
+    draft.license = source.license;
+    draft.source = source.source;
+    draft.background = source.background;
+    draft.text = source.text;
+    if (source.darkExplicit) {
+        draft.dark = source.dark;
+    }
+    if (source.familyExplicit) {
+        draft.family = source.family;
+    }
+
+    if (has(field::kMuted)) {
+        draft.muted = source.muted;
+    }
+    if (has(field::kAccent)) {
+        draft.accent = source.accent;
+    }
+    if (has(field::kLink)) {
+        draft.link = source.link;
+    }
+    if (has(field::kBorder)) {
+        draft.border = source.border;
+    }
+    if (has(field::kHr)) {
+        draft.hr = source.hr;
+    }
+    if (has(field::kStrong)) {
+        draft.strong = source.strong;
+    }
+    if (has(field::kEmphasis)) {
+        draft.emphasis = source.emphasis;
+    }
+    if (has(field::kListMarker)) {
+        draft.listMarker = source.listMarker;
+    }
+    if (has(field::kHeadings)) {
+        for (int i = 0; i < 6; ++i) {
+            draft.headings[i] = source.headings[i];
+        }
+    }
+    if (has(field::kBlockquoteText)) {
+        draft.blockquoteText = source.blockquoteText;
+    }
+    if (has(field::kBlockquoteBorder)) {
+        draft.blockquoteBorder = source.blockquoteBorder;
+    }
+    if (has(field::kCodeBackground)) {
+        draft.codeBackground = source.codeBackground;
+    }
+    if (has(field::kCodeText)) {
+        draft.codeText = source.codeText;
+    }
+    if (has(field::kCodeBorder)) {
+        draft.codeBorder = source.codeBorder;
+    }
+    if (has(field::kTableBorder)) {
+        draft.tableBorder = source.tableBorder;
+    }
+    if (has(field::kTableHeadBackground)) {
+        draft.tableHeadBackground = source.tableHeadBackground;
+    }
+    if (has(field::kSelection)) {
+        draft.selection = source.selection;
+    }
+    if (has(field::kFindMatch)) {
+        draft.findMatch = source.findMatch;
+    }
+    if (has(field::kFindCurrent)) {
+        draft.findCurrent = source.findCurrent;
+    }
+    if (has(field::kFindText)) {
+        draft.findText = source.findText;
+    }
+    if (has(field::kSidebarBackground)) {
+        draft.sidebarBackground = source.sidebarBackground;
+    }
+    if (has(field::kSidebarHover)) {
+        draft.sidebarHover = source.sidebarHover;
+    }
+    if (has(field::kDanger)) {
+        draft.danger = source.danger;
+    }
+    if (has(field::kTokens)) {
+        draft.tokens = source.tokens;
+    }
+
+    draft.typography = source.typography;
+    draft.extraCss = source.extraCss;
+    draft.ui = source.ui;
+    draft.overrides = source.overrides;
+
+    ThemeSource result = FinalizeSource(std::move(draft));
+    // FinalizeSource sanitizes extra CSS; while the dialog is still being
+    // edited keep the raw text and only sanitize it on save.
+    result.extraCss = source.extraCss;
+    return result;
 }
 
 ThemeSource SourceFromDefinition(const ThemeDefinition& definition, bool includeOverrides)
@@ -329,6 +567,26 @@ ThemeSource SourceFromDefinition(const ThemeDefinition& definition, bool include
 
         add("preview.codeBlockBorder", definition.preview.codeBlockBorder);
     }
+
+    // A definition is a full snapshot: every color is authored. Defaults that
+    // still match the base colors are marked as derived so editing those base
+    // colors in the settings dialog keeps the derived values in step.
+    source.explicitFields = {
+        field::kBackground,        field::kText,
+        field::kMuted,             field::kAccent,
+        field::kLink,              field::kBorder,
+        field::kHr,                field::kStrong,
+        field::kEmphasis,          field::kListMarker,
+        field::kHeadings,          field::kBlockquoteText,
+        field::kBlockquoteBorder,  field::kCodeBackground,
+        field::kCodeText,          field::kCodeBorder,
+        field::kTableBorder,       field::kTableHeadBackground,
+        field::kSelection,         field::kFindMatch,
+        field::kFindCurrent,       field::kFindText,
+        field::kSidebarBackground, field::kSidebarHover,
+        field::kDanger,            field::kTokens,
+    };
+    MinimizeExplicitFields(source);
     return source;
 }
 
