@@ -7,7 +7,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cwctype>
+#include <initializer_list>
 #include <set>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -472,116 +474,117 @@ void ThemeDialog::CreateChildren()
     setFont(bodyGroupLabel_, theme_.uiFontSemibold());
     setFont(codeGroupLabel_, theme_.uiFontSemibold());
 
-    colorRows_.push_back({L"背景", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.background;
-                          }});
-    colorRows_.push_back({L"正文", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.text;
-                          }});
-    colorRows_.push_back({L"弱化文字", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.muted;
-                          }});
-    colorRows_.push_back({L"强调色", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.accent;
-                          }});
-    colorRows_.push_back({L"链接", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.link;
-                          }});
-    colorRows_.push_back({L"边框", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.border;
-                          }});
-    colorRows_.push_back({L"分隔线", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.hr;
-                          }});
-    colorRows_.push_back({L"粗体", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.strong;
-                          }});
-    colorRows_.push_back({L"斜体", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.emphasis;
-                          }});
-    colorRows_.push_back({L"列表标记", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.listMarker;
-                          }});
+    const auto colorRow = [this](const wchar_t* label, const char* key,
+                                 std::function<theme::ThemeColor&(
+                                     theme::ThemeSource&)> access) {
+        colorRows_.push_back({label, key, std::move(access)});
+    };
+    colorRow(L"背景", theme::field::kBackground,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.background; });
+    colorRow(L"正文", theme::field::kText,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.text; });
+    colorRow(L"弱化文字", theme::field::kMuted,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.muted; });
+    colorRow(L"强调色", theme::field::kAccent,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.accent; });
+    colorRow(L"链接", theme::field::kLink,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.link; });
+    colorRow(L"边框", theme::field::kBorder,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.border; });
+    colorRow(L"分隔线", theme::field::kHr,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.hr; });
+    colorRow(L"粗体", theme::field::kStrong,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.strong; });
+    colorRow(L"斜体", theme::field::kEmphasis,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.emphasis; });
+    colorRow(L"列表标记", theme::field::kListMarker,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.listMarker; });
     static const wchar_t* kHeadingLabels[6] = {
         L"标题 1", L"标题 2", L"标题 3", L"标题 4", L"标题 5", L"标题 6"};
     for (int i = 0; i < 6; ++i) {
-        colorRows_.push_back({kHeadingLabels[i], [i](theme::ThemeSource& s)
-                                                      -> theme::ThemeColor& {
-                                  return s.headings[i];
-                              }});
+        colorRow(kHeadingLabels[i], theme::field::kHeadings,
+                 [i](theme::ThemeSource& s) -> theme::ThemeColor& {
+                     return s.headings[i];
+                 });
     }
-    colorRows_.push_back({L"引用文字", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.blockquoteText;
-                          }});
-    colorRows_.push_back({L"引用边框", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.blockquoteBorder;
-                          }});
-    colorRows_.push_back({L"代码背景", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.codeBackground;
-                          }});
-    colorRows_.push_back({L"代码文字", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.codeText;
-                          }});
-    colorRows_.push_back({L"代码边框", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.codeBorder;
-                          }});
-    colorRows_.push_back({L"表格边框", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.tableBorder;
-                          }});
-    colorRows_.push_back({L"表头背景", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.tableHeadBackground;
-                          }});
-    colorRows_.push_back({L"选中背景", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.selection;
-                          }});
-    colorRows_.push_back({L"查找匹配", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.findMatch;
-                          }});
-    colorRows_.push_back({L"查找当前", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.findCurrent;
-                          }});
-    colorRows_.push_back({L"查找文字", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.findText;
-                          }});
-    colorRows_.push_back({L"侧栏背景", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.sidebarBackground;
-                          }});
-    colorRows_.push_back({L"侧栏悬停", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.sidebarHover;
-                          }});
-    colorRows_.push_back({L"危险色", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.danger;
-                          }});
-    colorRows_.push_back({L"Token 注释", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.tokens.comment;
-                          }});
-    colorRows_.push_back({L"Token 标点", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.tokens.punctuation;
-                          }});
-    colorRows_.push_back({L"Token 标签", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.tokens.tag;
-                          }});
-    colorRows_.push_back({L"Token 属性", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.tokens.property;
-                          }});
-    colorRows_.push_back({L"Token 布尔/数字", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.tokens.booleanNumber;
-                          }});
-    colorRows_.push_back({L"Token 字符串", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.tokens.string;
-                          }});
-    colorRows_.push_back({L"Token 运算符", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.tokens.oper;
-                          }});
-    colorRows_.push_back({L"Token 函数", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.tokens.function;
-                          }});
-    colorRows_.push_back({L"Token 关键字", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.tokens.keyword;
-                          }});
-    colorRows_.push_back({L"Token 正则", [](theme::ThemeSource& s) -> theme::ThemeColor& {
-                              return s.tokens.regex;
-                          }});
+    colorRow(L"引用文字", theme::field::kBlockquoteText,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.blockquoteText;
+             });
+    colorRow(L"引用边框", theme::field::kBlockquoteBorder,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.blockquoteBorder;
+             });
+    colorRow(L"代码背景", theme::field::kCodeBackground,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.codeBackground;
+             });
+    colorRow(L"代码文字", theme::field::kCodeText,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.codeText; });
+    colorRow(L"代码边框", theme::field::kCodeBorder,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.codeBorder; });
+    colorRow(L"表格边框", theme::field::kTableBorder,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.tableBorder;
+             });
+    colorRow(L"表头背景", theme::field::kTableHeadBackground,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.tableHeadBackground;
+             });
+    colorRow(L"选中背景", theme::field::kSelection,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.selection; });
+    colorRow(L"查找匹配", theme::field::kFindMatch,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.findMatch; });
+    colorRow(L"查找当前", theme::field::kFindCurrent,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.findCurrent;
+             });
+    colorRow(L"查找文字", theme::field::kFindText,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.findText; });
+    colorRow(L"侧栏背景", theme::field::kSidebarBackground,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.sidebarBackground;
+             });
+    colorRow(L"侧栏悬停", theme::field::kSidebarHover,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.sidebarHover;
+             });
+    colorRow(L"危险色", theme::field::kDanger,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.danger; });
+    colorRow(L"Token 注释", theme::field::kTokens,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.tokens.comment;
+             });
+    colorRow(L"Token 标点", theme::field::kTokens,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.tokens.punctuation;
+             });
+    colorRow(L"Token 标签", theme::field::kTokens,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.tokens.tag; });
+    colorRow(L"Token 属性", theme::field::kTokens,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.tokens.property;
+             });
+    colorRow(L"Token 布尔/数字", theme::field::kTokens,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.tokens.booleanNumber;
+             });
+    colorRow(L"Token 字符串", theme::field::kTokens,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.tokens.string;
+             });
+    colorRow(L"Token 运算符", theme::field::kTokens,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.tokens.oper; });
+    colorRow(L"Token 函数", theme::field::kTokens,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.tokens.function;
+             });
+    colorRow(L"Token 关键字", theme::field::kTokens,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& {
+                 return s.tokens.keyword;
+             });
+    colorRow(L"Token 正则", theme::field::kTokens,
+             [](theme::ThemeSource& s) -> theme::ThemeColor& { return s.tokens.regex; });
 
     const auto derived = [this](const wchar_t* label,
                                 std::function<theme::ThemeColor(
@@ -859,6 +862,7 @@ void ThemeDialog::LoadThemeIntoEditor(int catalogIndex)
     }
 
     dirty_ = false;
+    sessionEditedFields_.clear();
     suppressFieldChanges_ = true;
     FillControlsFromDraft();
     suppressFieldChanges_ = false;
@@ -1032,6 +1036,7 @@ void ThemeDialog::CreateNewTheme(bool duplicate)
     isBuiltin_ = false;
     currentIndex_ = -1;
     selectedThemeId_.clear();
+    sessionEditedFields_.clear();
     dirty_ = true;
 
     suppressFieldChanges_ = true;
@@ -1176,22 +1181,58 @@ void ThemeDialog::EditSelectedColor()
     if (row < 0 || static_cast<std::size_t>(row) >= colorRows_.size()) {
         return;
     }
-    theme::ThemeColor& color = colorRows_[static_cast<std::size_t>(row)].access(draft_);
+    const ColorRow& rowInfo = colorRows_[static_cast<std::size_t>(row)];
+    const theme::ThemeColor current = rowInfo.access(draft_);
     CHOOSECOLORW dialog = {};
     dialog.lStructSize = sizeof(dialog);
     dialog.hwndOwner = m_hWnd;
-    dialog.rgbResult = RGB(color.r, color.g, color.b);
+    dialog.rgbResult = RGB(current.r, current.g, current.b);
     dialog.lpCustColors = customColors_;
     dialog.Flags = CC_FULLOPEN | CC_RGBINIT;
     if (::ChooseColorW(&dialog) == FALSE) {
         return;
     }
-    color.r = GetRValue(dialog.rgbResult);
-    color.g = GetGValue(dialog.rgbResult);
-    color.b = GetBValue(dialog.rgbResult);
-    if (!draft_.familyExplicit) {
-        draft_.family = theme::DeriveFamily(draft_.accent);
+    theme::ThemeColor edited = current;
+    edited.r = GetRValue(dialog.rgbResult);
+    edited.g = GetGValue(dialog.rgbResult);
+    edited.b = GetBValue(dialog.rgbResult);
+    rowInfo.access(draft_) = edited;
+    draft_.explicitFields.insert(rowInfo.key);
+    sessionEditedFields_.insert(rowInfo.key);
+    // Changing a base color re-derives the structural colors around it
+    // (sidebar/window chrome, code blocks, borders, quotes, ...) unless the
+    // user set one of them by hand in this session. Colors that give the
+    // theme its identity (headings, tokens, emphasis, ...) stay untouched.
+    const auto releaseDerived = [this](std::initializer_list<const char*> fields) {
+        for (const char* field : fields) {
+            if (sessionEditedFields_.find(field) == sessionEditedFields_.end()) {
+                draft_.explicitFields.erase(field);
+            }
+        }
+    };
+    const std::string_view editedKey = rowInfo.key;
+    if (editedKey == theme::field::kBackground || editedKey == theme::field::kText) {
+        releaseDerived({theme::field::kMuted,
+                        theme::field::kBorder,
+                        theme::field::kHr,
+                        theme::field::kBlockquoteText,
+                        theme::field::kBlockquoteBorder,
+                        theme::field::kCodeBackground,
+                        theme::field::kCodeText,
+                        theme::field::kCodeBorder,
+                        theme::field::kTableBorder,
+                        theme::field::kTableHeadBackground,
+                        theme::field::kSidebarBackground,
+                        theme::field::kSidebarHover,
+                        theme::field::kFindText});
+    } else if (editedKey == theme::field::kAccent) {
+        releaseDerived({theme::field::kSelection,
+                        theme::field::kFindMatch,
+                        theme::field::kFindCurrent});
     }
+    draft_ = theme::RefreshDerivedFields(draft_);
+    // Dark/inferred metadata may have changed with the base colors.
+    darkCheck_.SetCheck(draft_.dark ? BST_CHECKED : BST_UNCHECKED);
     dirty_ = true;
     colorList_.Invalidate();
     UpdateHint();

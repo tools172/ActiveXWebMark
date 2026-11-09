@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -104,6 +105,8 @@ private:
 
     struct ColorRow {
         const wchar_t* label;
+        /// Name in ThemeSource::explicitFields (see theme::field).
+        const char* key;
         std::function<theme::ThemeColor&(theme::ThemeSource&)> access;
     };
 
@@ -230,6 +233,9 @@ private:
 
     theme::ThemeSource draft_;
     theme::ThemeDefinition previewDefinition_;
+    /// Colors the user changed in this dialog session. They stay fixed when a
+    /// base color later re-derives the structural colors around it.
+    std::set<std::string> sessionEditedFields_;
 
     int currentIndex_ = -1;
     int themeSelectionWidth_ = 0;
