@@ -14,12 +14,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # git-cliff needs the full history and all tags to build the range
           # between the previous release and this one.
           fetch-depth: 0
 
+      # Upstream has no Node 24 release yet (v1.13.0 still declares node20);
+      # the runner forces it onto Node 24, which currently works.
       - name: Setup MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -93,7 +95,7 @@ jobs:
           & $nsis /DVERSION=$v /DEXE="$env:AWM_EXE" /DOUTDIR="$env:GITHUB_WORKSPACE\dist" packaging/nsis/ActiveXWebMark.nsi
 
       - name: Upload release assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body_path: release-notes.md
           files: |
