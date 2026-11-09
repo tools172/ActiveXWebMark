@@ -13,6 +13,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "controls/filedroptarget.h"
 #include "util/stringutil.h"
 
 namespace awm {
@@ -120,6 +121,7 @@ bool IePreviewView::Create(HWND host, const RECT& rc)
 
 void IePreviewView::Destroy()
 {
+    RemoveFileDropTargets();
     UnadviseWindowEvents();
     UnadviseBrowser();
     if (activeObject_ != nullptr) {
@@ -312,6 +314,77 @@ std::string IePreviewView::RunJavaScriptForResult(const std::string& script,
 void IePreviewView::SetCallbacks(PreviewCallbacks callbacks)
 {
     callbacks_ = std::move(callbacks);
+}
+
+void IePreviewView::SetFileDropHandler(
+    std::function<void(std::vector<std::wstring>)> handler,
+    std::function<bool(const std::wstring&)> isSupported)
+{
+    fileDropHandler_ = std::move(handler);
+    fileDropFilter_ = std::move(isSupported);
+    InstallFileDropTargets();
+}
+
+void IePreviewView::InstallFileDropTargets()
+{
+    if (!ax_.IsWindow() || !fileDropHandler_) {
+        return;
+    }
+
+    if (fileDropTarget_ == nullptr) {
+        fileDropTarget_ = new ui::FileDropTarget(
+            [this](std::vector<std::wstring> files) {
+                if (fileDropHandler_) {
+                    fileDropHandler_(std::move(files));
+                }
+            },
+            fileDropFilter_);
+    }
+
+    // MSHTML registers its own drop target on the WebBrowser control window
+    // and on the inner document windows. Take those targets over so a dropped
+    // file opens as a tab instead of navigating the preview away. Only windows
+    // that actually have a target are touched; OLE walks up the parent chain
+    // for the rest.
+    std::vector<HWND> candidates;
+    ::EnumChildWindows(
+        ax_.m_hWnd,
+        [](HWND hwnd, LPARAM param) -> BOOL {
+            if (ui::FileDropTarget::RegisteredTarget(hwnd) != nullptr) {
+                reinterpret_cast<std::vector<HWND>*>(param)->push_back(hwnd);
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&candidates));
+
+    for (HWND hwnd : candidates) {
+        if (ui::FileDropTarget::RegisteredTarget(hwnd) == fileDropTarget_) {
+            continue;
+        }
+        // Replaces MSHTML's target (or a stale registration); Register() also
+        // records the window used to position the shell drag image.
+        if (!ui::FileDropTarget::Register(hwnd, fileDropTarget_, true)) {
+            continue;
+        }
+        if (std::find(fileDropWindows_.begin(), fileDropWindows_.end(), hwnd) ==
+            fileDropWindows_.end()) {
+            fileDropWindows_.push_back(hwnd);
+        }
+    }
+}
+
+void IePreviewView::RemoveFileDropTargets()
+{
+    for (HWND hwnd : fileDropWindows_) {
+        if (::IsWindow(hwnd)) {
+            ::RevokeDragDrop(hwnd);
+        }
+    }
+    fileDropWindows_.clear();
+    if (fileDropTarget_ != nullptr) {
+        fileDropTarget_->Release();
+        fileDropTarget_ = nullptr;
+    }
 }
 
 bool IePreviewView::TranslateAccelerator(MSG* msg)
@@ -782,6 +855,8 @@ void __stdcall IePreviewView::OnDocumentComplete(IDispatch* /*dispatch*/, VARIAN
     ready_ = true;
     navigating_ = false;
     AdviseWindowEvents();
+    // A new document can bring up new MSHTML drop targets; re-assert ours.
+    InstallFileDropTargets();
     FlushPending();
 }
 

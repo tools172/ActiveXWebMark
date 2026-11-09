@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <utility>
 
 #include <scintilla/Scintilla.h>
 #include <scintilla/SciLexer.h>
 
+#include "controls/filedroptarget.h"
 #include "highlight/stylemerge.h"
 
 namespace awm {
@@ -61,6 +64,7 @@ ScintillaEditor::ScintillaEditor() : scheme_(theme::DefaultTheme().editor) {}
 
 ScintillaEditor::~ScintillaEditor()
 {
+    ReleaseFileDropTarget();
     if (hwnd_ != nullptr && ::IsWindow(hwnd_) != FALSE) {
         ::DestroyWindow(hwnd_);
     }
@@ -236,6 +240,54 @@ void ScintillaEditor::SetChangeCallback(std::function<void()> callback)
     changeCallback_ = std::move(callback);
 }
 
+void ScintillaEditor::SetFileDropHandler(
+    std::function<void(std::vector<std::wstring>)> handler,
+    std::function<bool(const std::wstring&)> isSupported)
+{
+    fileDropHandler_ = std::move(handler);
+    fileDropFilter_ = std::move(isSupported);
+    InstallFileDropTarget();
+}
+
+void ScintillaEditor::InstallFileDropTarget()
+{
+    if (hwnd_ == nullptr || fileDropTarget_ != nullptr || !fileDropHandler_) {
+        return;
+    }
+
+    // Scintilla registers its own IDropTarget in WM_CREATE. Take it over so
+    // files dropped on the editor open as tabs, and forward every other drag
+    // (text) back to Scintilla so its internal drag and drop still works.
+    IDropTarget* original = ui::FileDropTarget::RegisteredTarget(hwnd_);
+    fileDropTarget_ = new ui::FileDropTarget(
+        [this](std::vector<std::wstring> files) {
+            if (fileDropHandler_) {
+                fileDropHandler_(std::move(files));
+            }
+        },
+        fileDropFilter_, original);
+
+    if (!ui::FileDropTarget::Register(hwnd_, fileDropTarget_, true)) {
+        ReleaseFileDropTarget();
+        if (original != nullptr) {
+            ::RegisterDragDrop(hwnd_, original);
+        }
+    }
+}
+
+void ScintillaEditor::ReleaseFileDropTarget()
+{
+    if (fileDropTarget_ == nullptr) {
+        return;
+    }
+    if (hwnd_ != nullptr && ::IsWindow(hwnd_) != FALSE) {
+        ui::FileDropTarget::Unregister(hwnd_, fileDropTarget_);
+    } else {
+        fileDropTarget_->Release();
+        fileDropTarget_ = nullptr;
+    }
+}
+
 int ScintillaEditor::px(int logicalPixels) const
 {
     return static_cast<int>(std::lround(static_cast<double>(logicalPixels) * dpiScale_));
@@ -371,6 +423,12 @@ LRESULT CALLBACK ScintillaEditor::SubclassProc(HWND hwnd, UINT msg, WPARAM wPara
     if (msg == WM_NCDESTROY && self != nullptr) {
         WNDPROC original = self->originalProc_;
         const LRESULT result = ::CallWindowProcW(original, hwnd, msg, wParam, lParam);
+        // Scintilla's Finalise() revokes the window's drop target while it
+        // tears the control down, so only the owner's reference is left.
+        if (self->fileDropTarget_ != nullptr) {
+            self->fileDropTarget_->Release();
+            self->fileDropTarget_ = nullptr;
+        }
         self->hwnd_ = nullptr;
         self->originalProc_ = nullptr;
         return result;

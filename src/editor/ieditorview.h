@@ -69,6 +69,16 @@ public:
 
     /// Invoked when the user edits the document.
     virtual void SetChangeCallback(std::function<void()> callback) = 0;
+
+    /// Invoked when local files are dropped on the editor surface.
+    /// `isSupported` filters which paths can be opened (returns true when the
+    /// file format is handled). Engines that cannot intercept their native
+    /// drop target may ignore this.
+    virtual void SetFileDropHandler(
+        std::function<void(std::vector<std::wstring>)> /*handler*/,
+        std::function<bool(const std::wstring&)> /*isSupported*/)
+    {
+    }
 };
 
 } // namespace awm

@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <utility>
 
+#include "controls/filedroptarget.h"
 #include "darkmode.h"
 #include "dialogs.h"
 #include "doublebuffer.h"
@@ -409,6 +410,12 @@ DocumentViewServices MainWindow::MakeServices()
                             SW_SHOWNORMAL);
         }
     };
+    services.onDropFiles = [this](std::vector<std::wstring> files) {
+        PostDroppedFiles(std::move(files));
+    };
+    services.isSupportedFile = [this](const std::wstring& path) {
+        return registry_.canLoad(path);
+    };
     return services;
 }
 
@@ -449,6 +456,20 @@ LRESULT MainWindow::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
         const int x = work.left + (static_cast<int>(work.right - work.left) - width) / 2;
         const int y = work.top + (static_cast<int>(work.bottom - work.top) - height) / 2;
         ::SetWindowPos(m_hWnd, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    // Files dropped anywhere on the window (title bar, tab strip, navigation
+    // tree, splitters) open as tabs. OLE walks up the parent chain, so a target
+    // on the frame covers every child that has no drop target of its own. The
+    // editor and preview take over their own native targets separately.
+    fileDropTarget_ = new ui::FileDropTarget(
+        [this](std::vector<std::wstring> files) {
+            PostDroppedFiles(std::move(files));
+        },
+        [this](const std::wstring& path) { return registry_.canLoad(path); });
+    if (!ui::FileDropTarget::Register(m_hWnd, fileDropTarget_)) {
+        fileDropTarget_->Release();
+        fileDropTarget_ = nullptr;
     }
 
     RECT zero = {0, 0, 0, 0};
@@ -836,6 +857,16 @@ int MainWindow::OpenFileInternal(const std::wstring& path, bool activate, bool r
             ActivateTab(existing);
         }
         return existing;
+    }
+
+    // Report an unsupported format explicitly; loaders otherwise produce a
+    // generic "invalid argument" error that means nothing to the user.
+    if (!registry_.canLoad(normalized)) {
+        if (reportErrors) {
+            ShowError(m_hWnd, L"不支持该文件类型：\n" + normalized +
+                                  L"\n\n只能打开 Markdown 文件（.md、.markdown、.mdown）。");
+        }
+        return -1;
     }
 
     std::error_code ec;
@@ -1446,6 +1477,7 @@ void MainWindow::SaveSettings()
 
 LRESULT MainWindow::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
 {
+    ui::FileDropTarget::Unregister(m_hWnd, fileDropTarget_);
     ::KillTimer(m_hWnd, kStartupUpdateTimer);
     ::KillTimer(m_hWnd, kUpdatePollTimer);
     updates_.RequestCancel();
@@ -1479,6 +1511,29 @@ LRESULT MainWindow::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
     titleBar_.SetIcon(nullptr);
 
     ::PostQuitMessage(0);
+    return 0;
+}
+
+void MainWindow::PostDroppedFiles(std::vector<std::wstring> files)
+{
+    if (files.empty() || !::IsWindow(m_hWnd)) {
+        return;
+    }
+
+    auto* pending = new std::vector<std::wstring>(std::move(files));
+    if (::PostMessageW(m_hWnd, kOpenDroppedFilesMessage, 0,
+                       reinterpret_cast<LPARAM>(pending)) == FALSE) {
+        delete pending;
+    }
+}
+
+LRESULT MainWindow::OnOpenDroppedFiles(UINT, WPARAM, LPARAM lParam, BOOL&)
+{
+    std::unique_ptr<std::vector<std::wstring>> files(
+        reinterpret_cast<std::vector<std::wstring>*>(lParam));
+    if (files != nullptr && !files->empty()) {
+        OpenFiles(*files);
+    }
     return 0;
 }
 

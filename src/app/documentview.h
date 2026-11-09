@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #include "wtlinclude.h"
 
@@ -35,6 +36,11 @@ struct DocumentViewServices {
     std::function<std::unique_ptr<IEditorView>()> createEditor;
     std::function<std::unique_ptr<IPreviewView>()> createPreview;
     std::function<void(const std::string& url)> onOpenLink;
+    /// Opens local files dropped on the editor, preview or navigation panel.
+    std::function<void(std::vector<std::wstring>)> onDropFiles;
+    /// True when the file's format can be opened; rejected files show the
+    /// no-drop cursor instead of triggering an error dialog.
+    std::function<bool(const std::wstring&)> isSupportedFile;
     /// Prism bundle embedded in the executable; null disables highlighting.
     const PreviewAssets* previewAssets = nullptr;
     /// Shared diagram sidecar; null disables Mermaid/PlantUML rendering.

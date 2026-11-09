@@ -10,6 +10,7 @@ add_library(awm_ui STATIC
     controls/navpanel.cpp
     controls/dragline.cpp
     controls/findbar.cpp
+    controls/filedroptarget.cpp
 )
 
 target_include_directories(awm_ui PUBLIC
@@ -24,4 +25,6 @@ target_link_libraries(awm_ui PUBLIC
     uxtheme
     user32
     gdi32
+    ole32
+    shell32
 )

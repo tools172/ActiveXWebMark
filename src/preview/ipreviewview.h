@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace awm {
 
@@ -87,6 +88,16 @@ public:
     virtual bool TranslateAccelerator(MSG* msg) = 0;
 
     virtual bool SupportsJavaScript() const = 0;
+
+    /// Invoked when local files are dropped on the preview surface.
+    /// `isSupported` filters which paths can be opened (returns true when the
+    /// file format is handled). Engines that cannot intercept their native
+    /// drop target may ignore this.
+    virtual void SetFileDropHandler(
+        std::function<void(std::vector<std::wstring>)> /*handler*/,
+        std::function<bool(const std::wstring&)> /*isSupported*/)
+    {
+    }
 };
 
 /// The set of render engines known to the factory.

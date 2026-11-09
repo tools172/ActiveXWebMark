@@ -8,12 +8,18 @@
 #include <mshtml.h>
 #include <mshtmdid.h>
 
+#include <functional>
 #include <string>
+#include <vector>
 
 #include "ipreviewview.h"
 #include "layout/scrollmap.h"
 
 namespace awm {
+
+namespace ui {
+class FileDropTarget;
+}
 
 namespace ie_detail {
 
@@ -79,6 +85,9 @@ public:
     bool TranslateAccelerator(MSG* msg) override;
     bool SupportsJavaScript() const override { return true; }
     void Focus() override;
+    void SetFileDropHandler(
+        std::function<void(std::vector<std::wstring>)> handler,
+        std::function<bool(const std::wstring&)> isSupported) override;
 
     BEGIN_SINK_MAP(IePreviewView)
         SINK_ENTRY_INFO(1, DIID_DWebBrowserEvents2, DISPID_DOCUMENTCOMPLETE, OnDocumentComplete,
@@ -116,6 +125,8 @@ private:
     void InstallLinkHandler();
     void InstallCodeCopyButtons();
     void HandleCodeCopyNavigation(const std::wstring& buttonId);
+    void InstallFileDropTargets();
+    void RemoveFileDropTargets();
     void ApplyPendingAnchor();
     void EnsureScrollMap();
     void RebuildScrollMap();
@@ -131,6 +142,10 @@ private:
     CComPtr<IOleInPlaceActiveObject> activeObject_;
     CComPtr<IHTMLWindow2> scrollWindow_;
     PreviewCallbacks callbacks_;
+    ui::FileDropTarget* fileDropTarget_ = nullptr;
+    std::function<void(std::vector<std::wstring>)> fileDropHandler_;
+    std::function<bool(const std::wstring&)> fileDropFilter_;
+    std::vector<HWND> fileDropWindows_;
 
     std::wstring pendingHtml_;
     std::wstring lastHtml_;

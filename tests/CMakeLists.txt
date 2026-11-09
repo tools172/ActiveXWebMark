@@ -40,6 +40,7 @@ add_test(NAME awm_layout_tests COMMAND awm_layout_tests)
 add_executable(awm_ui_tests
     ui/titlebar_test.cpp
     ui/theme_test.cpp
+    ui/filedroptarget_test.cpp
 )
 
 target_link_libraries(awm_ui_tests PRIVATE awm_ui GTest::gtest_main)

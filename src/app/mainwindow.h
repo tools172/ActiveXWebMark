@@ -32,6 +32,10 @@ namespace awm {
 
 class UpdateDialog;
 
+namespace ui {
+class FileDropTarget;
+}
+
 /// Application main window: tab strip, active document view, menus and
 /// persistence. Model state (documents, recent files) lives in app/core classes.
 class MainWindow : public CWindowImpl<MainWindow, CWindow, CFrameWinTraits>,
@@ -43,6 +47,9 @@ public:
     /// Diagnostic hook used by tests/manual/titlebar-smoke.ps1. Every query
     /// returns an integer so it works across processes without marshaling.
     static constexpr UINT kTestTitleBarMessage = WM_APP + 0x53;
+    /// Posted by the drop target with a heap-allocated vector<wstring> so files
+    /// are opened after the OLE drop operation has finished.
+    static constexpr UINT kOpenDroppedFilesMessage = WM_APP + 0x56;
 
     MainWindow();
     ~MainWindow() override;
@@ -77,6 +84,7 @@ public:
         MESSAGE_HANDLER(WM_LBUTTONUP, OnLButtonUp)
         MESSAGE_HANDLER(WM_CAPTURECHANGED, OnCaptureChanged)
         MESSAGE_HANDLER(kTestTitleBarMessage, OnTestTitleBarState)
+        MESSAGE_HANDLER(kOpenDroppedFilesMessage, OnOpenDroppedFiles)
         COMMAND_ID_HANDLER(cmd::kFileOpen, OnFileOpen)
         COMMAND_ID_HANDLER(cmd::kFileSave, OnFileSave)
         COMMAND_ID_HANDLER(cmd::kFileSaveAs, OnFileSaveAs)
@@ -128,6 +136,9 @@ private:
     LRESULT OnLButtonUp(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnCaptureChanged(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnTestTitleBarState(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnOpenDroppedFiles(UINT, WPARAM, LPARAM, BOOL&);
+    /// Queues dropped paths for OpenFiles() after the OLE drop returns.
+    void PostDroppedFiles(std::vector<std::wstring> files);
 
     void ShowTitleMenu(int index);
     void ShowSystemMenu();
@@ -252,6 +263,8 @@ private:
     std::vector<std::string> themeLoadErrors_;
     unsigned themeMenuGeneration_ = 0;
     ViewSettings viewSettings_;
+
+    ui::FileDropTarget* fileDropTarget_ = nullptr;
 
     HMENU mainMenu_ = nullptr;
     HMENU fileMenu_ = nullptr;

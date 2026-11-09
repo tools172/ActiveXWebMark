@@ -293,6 +293,15 @@ bool DocumentView::Create(HWND parent, const RECT& rc, std::unique_ptr<DocumentS
     editor_->SetText(source);
     editor_->ApplyHighlighting(source, services_.highlighter->highlight(source));
     editor_->SetChangeCallback([this]() { OnEditorChanged(); });
+    if (services_.onDropFiles) {
+        editor_->SetFileDropHandler(
+            [this](std::vector<std::wstring> files) {
+                if (services_.onDropFiles) {
+                    services_.onDropFiles(std::move(files));
+                }
+            },
+            services_.isSupportedFile);
+    }
 
     scrollSync_ = std::make_unique<ScrollSyncController>(*editor_);
     scrollSync_->SetScheduler(
@@ -843,6 +852,16 @@ void DocumentView::EnsurePreview()
     if (!preview_->Create(m_hWnd, zero)) {
         preview_.reset();
         return;
+    }
+
+    if (services_.onDropFiles) {
+        preview_->SetFileDropHandler(
+            [this](std::vector<std::wstring> files) {
+                if (services_.onDropFiles) {
+                    services_.onDropFiles(std::move(files));
+                }
+            },
+            services_.isSupportedFile);
     }
 
     PreviewCallbacks callbacks;
