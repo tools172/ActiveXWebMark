@@ -558,7 +558,11 @@ void IePreviewView::InstallLinkHandler()
         "if(!t){return;}"
         "var h=t.getAttribute('href')||'';"
         "if(h.charAt(0)!='#'){return;}"
-        "var e=document.getElementById(h.substring(1));"
+        // cmark percent-encodes non-ASCII fragments (for example a Chinese
+        // heading anchor), while the injected heading id stays Unicode.
+        "var id=h.substring(1);"
+        "try{id=decodeURIComponent(id);}catch(ex){}"
+        "var e=document.getElementById(id);"
         "if(e){var r=e.getBoundingClientRect();"
         "var d=document.documentElement;var b=document.body;"
         "var y=r.top+(d.scrollTop||b.scrollTop||0)-16;"

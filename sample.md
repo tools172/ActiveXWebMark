@@ -29,6 +29,10 @@ int main() {
 
 参见 [GitHub](https://github.com/tools172/ActiveXWebMark) 获取更多信息。
 
+### 文内链接
+
+跳转到 [表格](#表格) 或 [代码示例](#代码示例)。
+
 ### 小结
 
 这是三级标题。

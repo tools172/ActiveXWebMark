@@ -51,6 +51,16 @@ TEST(CmarkEngine, TableCarriesSourcePositions)
               std::string::npos);
 }
 
+TEST(CmarkEngine, PercentEncodesNonAsciiAnchorHref)
+{
+    const RenderResult result = render("[跳转](#中文标题)\n\n# 中文标题\n");
+    // The heading keeps the Unicode anchor, while cmark percent-encodes the
+    // link fragment; the preview link handler decodes it before lookup.
+    EXPECT_NE(result.bodyHtml.find("id=\"中文标题\""), std::string::npos);
+    EXPECT_NE(result.bodyHtml.find("href=\"#%E4%B8%AD%E6%96%87%E6%A0%87%E9%A2%98\""),
+              std::string::npos);
+}
+
 TEST(CmarkEngine, ProducesOutline)
 {
     const RenderResult result = render("# Title\n## Section\n### Sub\n");
