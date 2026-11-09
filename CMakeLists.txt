@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.24)
 # Single source of truth for the application version. Local builds report
 # PROJECT_VERSION; tagged CI builds override it with -DAWM_VERSION. vcpkg.json
 # intentionally carries no version (optional for a top-level manifest).
-project(ActiveXWebMark VERSION 0.3.0 LANGUAGES C CXX)
+project(ActiveXWebMark VERSION 0.4.0 LANGUAGES C CXX)
 
 # Effective version, written to <build-dir>/version.txt for the installer
 # scripts (see README, "本地生成安装包"). Nothing else stores a version copy.
