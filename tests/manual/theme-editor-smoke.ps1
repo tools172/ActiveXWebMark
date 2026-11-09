@@ -98,6 +98,8 @@ public class AwmThemeEditorSmoke {
     [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr hwnd, int id);
     [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hwnd, int index);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern IntPtr SetFocus(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
@@ -197,6 +199,9 @@ try {
         $derivedList = [AwmThemeEditorSmoke]::GetDlgItem($dialog, 227)
         $saveButton = [AwmThemeEditorSmoke]::GetDlgItem($dialog, 1)
         $applyButton = [AwmThemeEditorSmoke]::GetDlgItem($dialog, 226)
+        $nameEdit = [AwmThemeEditorSmoke]::GetDlgItem($dialog, 203)
+        $previewTabs = [AwmThemeEditorSmoke]::GetDlgItem($dialog, 240)
+        $previewExpand = [AwmThemeEditorSmoke]::GetDlgItem($dialog, 242)
 
         Check (([AwmThemeEditorSmoke]::SendMessage($tabs, 0x1304, [IntPtr]::Zero,
             [IntPtr]::Zero).ToInt64()) -eq 4) "theme settings has four tabs"
@@ -216,11 +221,41 @@ try {
         Check (-not [AwmThemeEditorSmoke]::IsWindowEnabled($saveButton)) "save is disabled for built-in themes"
         Check ([AwmThemeEditorSmoke]::IsWindowEnabled($applyButton)) "apply is enabled for built-in themes"
         Check ([AwmThemeEditorSmoke]::IsWindowEnabled($colorList)) "built-in color list stays scrollable"
+        Check ([AwmThemeEditorSmoke]::IsWindowEnabled($nameEdit)) "built-in name field stays enabled for copying"
+        $nameStyle = [AwmThemeEditorSmoke]::GetWindowLong($nameEdit, -16)
+        Check (($nameStyle -band 0x0800) -ne 0) "built-in name field is read-only"
 
         [void][AwmThemeEditorSmoke]::PostMessage($themeList, 0x0100, [IntPtr]0x23, [IntPtr]::Zero)
         [void][AwmThemeEditorSmoke]::PostMessage($themeList, 0x0101, [IntPtr]0x23, [IntPtr]::Zero)
         Start-Sleep -Milliseconds 400
         Check ([AwmThemeEditorSmoke]::IsWindowEnabled($saveButton)) "save is enabled for user themes"
+        $nameStyle = [AwmThemeEditorSmoke]::GetWindowLong($nameEdit, -16)
+        Check (($nameStyle -band 0x0800) -eq 0) "user theme name field is editable"
+
+        # The preview area below the settings page switches between the
+        # rendered Markdown document and the window-chrome mock, and can expand
+        # over the settings page. It uses the same tab control as the pages.
+        Check ($previewTabs -ne [IntPtr]::Zero -and $previewExpand -ne [IntPtr]::Zero) `
+            "preview tabs and expand control exist"
+        if ($previewTabs -ne [IntPtr]::Zero) {
+            Check (([AwmThemeEditorSmoke]::SendMessage($previewTabs, 0x1304, [IntPtr]::Zero,
+                [IntPtr]::Zero).ToInt64()) -eq 2) "preview has two tabs"
+            [void][AwmThemeEditorSmoke]::SendMessage($previewTabs, 0x130C, [IntPtr]1,
+                [IntPtr]::Zero)
+            Check (([AwmThemeEditorSmoke]::SendMessage($previewTabs, 0x130B, [IntPtr]::Zero,
+                [IntPtr]::Zero).ToInt64()) -eq 1) "window-chrome preview tab is selectable"
+            [void][AwmThemeEditorSmoke]::SendMessage($previewTabs, 0x130C, [IntPtr]0,
+                [IntPtr]::Zero)
+        }
+        if ($previewExpand -ne [IntPtr]::Zero) {
+            Check ([AwmThemeEditorSmoke]::IsWindowVisible($tabs)) "settings tabs are visible initially"
+            [void][AwmThemeEditorSmoke]::SendMessage($previewExpand, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+            Start-Sleep -Milliseconds 400
+            Check (-not [AwmThemeEditorSmoke]::IsWindowVisible($tabs)) "expanding the preview hides the settings tabs"
+            [void][AwmThemeEditorSmoke]::SendMessage($previewExpand, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+            Start-Sleep -Milliseconds 400
+            Check ([AwmThemeEditorSmoke]::IsWindowVisible($tabs)) "collapsing restores the settings tabs"
+        }
 
         # Saving keeps the dialog open so the user can keep tuning.
         [void][AwmThemeEditorSmoke]::SendMessage($saveButton, 0x00F5, [IntPtr]::Zero,
