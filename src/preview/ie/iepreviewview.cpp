@@ -51,6 +51,35 @@ std::string escapeForJavaScript(const std::string& value)
     return escaped;
 }
 
+// Copies UTF-16 text to the Windows clipboard. Returns false when another
+// application holds the clipboard or the allocation fails.
+bool copyTextToClipboard(HWND owner, const std::wstring& text)
+{
+    if (!::OpenClipboard(owner)) {
+        return false;
+    }
+
+    ::EmptyClipboard();
+    bool copied = false;
+    const std::size_t bytes = (text.size() + 1) * sizeof(wchar_t);
+    HGLOBAL memory = ::GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (memory != nullptr) {
+        void* target = ::GlobalLock(memory);
+        if (target != nullptr) {
+            std::memcpy(target, text.c_str(), bytes);
+            ::GlobalUnlock(memory);
+            copied = ::SetClipboardData(CF_UNICODETEXT, memory) != nullptr;
+            if (!copied) {
+                ::GlobalFree(memory);
+            }
+        } else {
+            ::GlobalFree(memory);
+        }
+    }
+    ::CloseClipboard();
+    return copied;
+}
+
 } // namespace
 
 IePreviewView::IePreviewView() = default;
@@ -512,6 +541,7 @@ void IePreviewView::WriteHtml(const std::wstring& html)
     hasSourceMap_ = false;
     RestoreScrollPosition(scrollTop, scrollLeft);
     InstallLinkHandler();
+    InstallCodeCopyButtons();
     AdviseWindowEvents();
 }
 
@@ -538,6 +568,130 @@ void IePreviewView::InstallLinkHandler()
         "if(ev.stopPropagation){ev.stopPropagation();}"
         "};";
     RunJavaScript(kScript);
+}
+
+void IePreviewView::InstallCodeCopyButtons()
+{
+    // Adds a copy icon button to every code block. The button stays hidden
+    // until the block is hovered (see the .awm-copy rules in the preview CSS),
+    // and its title supplies the "复制" tooltip. A click stages the code text
+    // in a hidden textarea and asks the host to copy it by navigating to a
+    // short about:blank sentinel, which is cancelled in OnBeforeNavigate2.
+    // Using the native clipboard avoids IE's programmatic clipboard
+    // restrictions inside the WebBrowser control.
+    static const char* kScript = R"JS(
+(function(){
+var copyIcon='<svg class="awm-copy-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.25" y="5.25" width="8.5" height="8.5" rx="1.5"/><path d="M10.75 5.25V3.5A1.5 1.5 0 0 0 9.25 2H3.5A1.5 1.5 0 0 0 2 3.5v5.75A1.5 1.5 0 0 0 3.5 10.75h1.75"/></svg>';
+var doneIcon='<svg class="awm-copy-done" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.2 8.4l3.1 3.1 6.5-6.9"/></svg>';
+var pres=document.getElementsByTagName('pre');
+for(var i=0;i<pres.length;i++){
+var pre=pres[i];
+if(pre.getAttribute('data-awm-copy')==='1'){continue;}
+if(!pre.getElementsByTagName('code').length){continue;}
+pre.setAttribute('data-awm-copy','1');
+var btn=document.createElement('button');
+btn.setAttribute('type','button');
+btn.className='awm-copy';
+btn.id='awm-copy-btn-'+i;
+btn.title='复制';
+btn.setAttribute('aria-label','复制');
+btn.innerHTML=copyIcon+doneIcon;
+btn.onclick=function(ev){
+ev=ev||window.event;
+if(ev){ev.returnValue=false;ev.cancelBubble=true;
+if(ev.preventDefault){ev.preventDefault();}
+if(ev.stopPropagation){ev.stopPropagation();}}
+var codes=this.parentNode.getElementsByTagName('code');
+var text=codes.length?(codes[0].textContent||codes[0].innerText||''):'';
+var holder=document.getElementById('awm-copy-data');
+if(!holder){
+holder=document.createElement('textarea');
+holder.id='awm-copy-data';
+holder.style.position='fixed';
+holder.style.left='-9999px';
+holder.style.top='0';
+holder.style.width='1px';
+holder.style.height='1px';
+document.body.appendChild(holder);
+}
+holder.value=text;
+window.location.href='about:blank?awm-copy='+this.id;
+};
+pre.appendChild(btn);
+}
+})();
+)JS";
+    RunJavaScript(kScript);
+}
+
+void IePreviewView::HandleCodeCopyNavigation(const std::wstring& buttonId)
+{
+    CComPtr<IHTMLDocument2> document = Document();
+    if (document == nullptr) {
+        return;
+    }
+    CComQIPtr<IHTMLDocument3> document3(document);
+    if (document3 == nullptr) {
+        return;
+    }
+
+    CComPtr<IHTMLElement> holder;
+    if (FAILED(document3->getElementById(CComBSTR(L"awm-copy-data"), &holder)) ||
+        holder == nullptr) {
+        return;
+    }
+    CComQIPtr<IHTMLTextAreaElement> textarea(holder);
+    if (textarea == nullptr) {
+        return;
+    }
+
+    CComBSTR value;
+    if (FAILED(textarea->get_value(&value)) || value.m_str == nullptr) {
+        return;
+    }
+    std::wstring text(value.m_str, value.Length());
+
+    // Every fenced code block ends with a line break; drop it so the pasted
+    // text matches the user's code rather than the block delimiter.
+    if (!text.empty() && text.back() == L'\n') {
+        text.pop_back();
+        if (!text.empty() && text.back() == L'\r') {
+            text.pop_back();
+        }
+    } else if (!text.empty() && text.back() == L'\r') {
+        text.pop_back();
+    }
+
+    // Windows clipboard text uses CRLF; the textarea value is LF-normalized.
+    std::wstring clipboardText;
+    clipboardText.reserve(text.size() + 16);
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const wchar_t ch = text[i];
+        if (ch == L'\r') {
+            clipboardText += L"\r\n";
+            if (i + 1 < text.size() && text[i + 1] == L'\n') {
+                ++i;
+            }
+        } else if (ch == L'\n') {
+            clipboardText += L"\r\n";
+        } else {
+            clipboardText.push_back(ch);
+        }
+    }
+
+    const bool copied =
+        clipboardText.empty() || copyTextToClipboard(ax_.m_hWnd, clipboardText);
+
+    // Report the result on the button itself: success swaps the copy glyph for
+    // a check mark, then both the icon and the tooltip return to normal.
+    const std::string id = wideToUtf8(buttonId);
+    const std::string classes = copied ? "awm-copy awm-copied" : "awm-copy";
+    const char* label = copied ? "已复制" : "复制失败";
+    const std::string script =
+        "var b=document.getElementById('" + escapeForJavaScript(id) +
+        "');if(b){b.className='" + classes + "';b.title='" + label +
+        "';setTimeout(function(){b.className='awm-copy';b.title='复制';},1200);}";
+    RunJavaScript(script);
 }
 
 void IePreviewView::ApplyPendingAnchor()
@@ -673,6 +827,20 @@ void __stdcall IePreviewView::OnBeforeNavigate2(IDispatch* /*dispatch*/, VARIANT
     }
 
     const std::wstring target(url->bstrVal, ::SysStringLen(url->bstrVal));
+
+    // Code-block copy button: the page stages the text in a hidden textarea and
+    // navigates here so the host can put it on the clipboard. Cancel the
+    // navigation so the rendered document stays in place.
+    static constexpr wchar_t kCopyUrlPrefix[] = L"about:blank?awm-copy=";
+    if (startsWithNoCase(target, kCopyUrlPrefix)) {
+        if (cancel != nullptr) {
+            *cancel = VARIANT_TRUE;
+        }
+        HandleCodeCopyNavigation(
+            target.substr(std::wcslen(kCopyUrlPrefix)));
+        return;
+    }
+
     if (target.empty() || isInternalUrl(target)) {
         return;
     }

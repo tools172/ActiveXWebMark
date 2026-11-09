@@ -114,6 +114,8 @@ private:
     void FlushPending();
     void WriteHtml(const std::wstring& html);
     void InstallLinkHandler();
+    void InstallCodeCopyButtons();
+    void HandleCodeCopyNavigation(const std::wstring& buttonId);
     void ApplyPendingAnchor();
     void EnsureScrollMap();
     void RebuildScrollMap();

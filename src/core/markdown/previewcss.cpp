@@ -45,6 +45,25 @@ std::string SafeFont(const std::string& font, const char* fallback)
 
 } // namespace
 
+double CopyIconOpacity(const theme::ThemeDefinition& theme)
+{
+    // WCAG's non-text contrast floor; the icon has no border or backdrop in its
+    // resting state, so its own blended color must stay visible everywhere.
+    constexpr double kMinimumOpacity = 0.55;
+    constexpr double kMinimumContrast = 3.0;
+    constexpr int kSteps = 9; // 0.55 .. 1.00 in 0.05 increments
+    for (int step = 0; step <= kSteps; ++step) {
+        // Integer hundredths keep the values exact (0.55 + 0.05 * 7 drifts).
+        const double opacity = static_cast<double>(55 + 5 * step) / 100.0;
+        const ThemeColor blended =
+            theme::Blend(theme.preview.codeBlockBg, theme.preview.codeBlockText, opacity);
+        if (theme::ContrastRatio(blended, theme.preview.codeBlockBg) >= kMinimumContrast) {
+            return opacity;
+        }
+    }
+    return 1.0;
+}
+
 std::string BuildPreviewCss(const theme::ThemeDefinition& theme)
 {
     const theme::PreviewColors& preview = theme.preview;
@@ -132,12 +151,35 @@ std::string BuildPreviewCss(const theme::ThemeDefinition& theme)
     css += ColorToCss(preview.codeBlockBg);
     css += ";border:1px solid ";
     css += ColorToCss(preview.codeBlockBorder);
-    css += ";border-radius:6px;padding:14px 16px;overflow:auto;line-height:1.5;}";
+    css += ";border-radius:6px;padding:14px 16px;overflow:auto;line-height:1.5;"
+           "position:relative;}";
     css += "pre code{background:none;padding:0;font-size:";
     css += std::to_string(codeSize);
     css += "px;color:";
     css += ColorToCss(preview.codeBlockText);
     css += ";}";
+
+    // Per-code-block copy icon, inserted by the preview script. It stays hidden
+    // until the block is hovered so it does not distract while reading. The
+    // glyph is translucent by default and turns opaque with a faint background
+    // patch on hover; the patch keeps it legible over every theme's code block
+    // without drawing a border around it.
+    const ThemeColor copyHoverBg =
+        theme::Blend(preview.codeBlockBg, preview.codeBlockText, 0.14);
+    css += ".awm-copy{display:none;position:absolute;top:6px;right:8px;width:26px;"
+           "height:22px;padding:0;cursor:pointer;opacity:";
+    css += CssNumber(CopyIconOpacity(theme));
+    css += ";border:0;background:transparent;border-radius:4px;color:";
+    css += ColorToCss(preview.codeBlockText);
+    css += ";}";
+    css += ".awm-copy svg{display:block;width:14px;height:14px;margin:4px auto 0;}";
+    css += ".awm-copy .awm-copy-done{display:none;}";
+    css += ".awm-copy.awm-copied .awm-copy-icon{display:none;}";
+    css += ".awm-copy.awm-copied .awm-copy-done{display:block;}";
+    css += "pre:hover .awm-copy,.awm-copy:focus{display:block;}";
+    css += ".awm-copy:hover{background:";
+    css += ColorToCss(copyHoverBg);
+    css += ";opacity:1;}";
     css += "blockquote{border-left:4px solid ";
     css += ColorToCss(preview.blockquoteBorder);
     css += ";color:";
