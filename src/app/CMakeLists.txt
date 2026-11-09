@@ -5,10 +5,16 @@
 # paths against its working directory, not against the .rc file).
 set(AWM_APP_ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/app.ico")
 set(AWM_PRISM_JS "${CMAKE_SOURCE_DIR}/third_party/prism/prism.bundle.min.js")
+set(AWM_MERMAID_DIR "${CMAKE_SOURCE_DIR}/third_party/mermaid")
+set(AWM_MERMAID_SIDECAR "${AWM_MERMAID_DIR}/sidecar.cjs")
+set(AWM_MERMAID_BUNDLE "${AWM_MERMAID_DIR}/mermaid.min.js")
 set(AWM_RESOURCE_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/resource.h")
 
 if(NOT EXISTS "${AWM_PRISM_JS}")
     message(FATAL_ERROR "Missing Prism bundle: ${AWM_PRISM_JS}")
+endif()
+if(NOT EXISTS "${AWM_MERMAID_SIDECAR}" OR NOT EXISTS "${AWM_MERMAID_BUNDLE}")
+    message(FATAL_ERROR "Missing Mermaid sidecar files in ${AWM_MERMAID_DIR}")
 endif()
 # The bundle is embedded as RCDATA. Reconfigure and recompile the resource
 # object when it changes.
@@ -26,12 +32,14 @@ add_executable(awm_app WIN32
     main.cpp
     mainwindow.cpp
     documentview.cpp
+    diagramservice.cpp
     apppaths.cpp
     appsettings.cpp
     browseremulation.cpp
     darkmode.cpp
     previewassets.cpp
     themeapply.cpp
+    themedialog.cpp
     dialogs.cpp
     fileassociation.cpp
     filedialogs.cpp
@@ -64,3 +72,26 @@ target_link_libraries(awm_app PRIVATE
     winhttp
     bcrypt
 )
+
+# The Node sidecar and Mermaid bundle are runtime files, not linked into the
+# executable. Keep them beside the exe so the app can find <exe>/mermaid/.
+set_property(TARGET awm_app APPEND PROPERTY LINK_DEPENDS
+    "${AWM_MERMAID_SIDECAR};${AWM_MERMAID_BUNDLE}")
+add_custom_command(TARGET awm_app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:awm_app>/mermaid"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${AWM_MERMAID_SIDECAR}"
+        "${AWM_MERMAID_BUNDLE}"
+        "$<TARGET_FILE_DIR:awm_app>/mermaid"
+    COMMENT "Copying Mermaid renderer files")
+
+# PlantUML native files are fetched separately (tools/plantuml-native/fetch.ps1).
+# Copy them next to the exe when present; the app falls back to the remote
+# server or source text otherwise. Packaging requires the fetched files.
+set(AWM_PLANTUML_STAGING "${CMAKE_SOURCE_DIR}/build/plantuml-native/staging")
+add_custom_command(TARGET awm_app POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+        "-DSRC=${AWM_PLANTUML_STAGING}"
+        "-DDST=$<TARGET_FILE_DIR:awm_app>/plantuml"
+        -P "${CMAKE_SOURCE_DIR}/cmake/CopyPlantUmlNative.cmake"
+    COMMENT "Copying PlantUML native files (if present)")

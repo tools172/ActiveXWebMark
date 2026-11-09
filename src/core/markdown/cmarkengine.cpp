@@ -1,6 +1,7 @@
 #include "markdown/cmarkengine.h"
 
-#include <cmark.h>
+#include <cmark-gfm-core-extensions.h>
+#include <cmark-gfm.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -62,6 +63,17 @@ Outline extractOutline(cmark_node* document)
     return outline;
 }
 
+// Registers the GFM core extensions once. cmark-gfm's registration is not
+// thread-safe, so a function-local static gives it a one-time, guarded init.
+void ensureGfmExtensionsRegistered()
+{
+    static const bool registered = [] {
+        cmark_gfm_core_extensions_ensure_registered();
+        return true;
+    }();
+    (void)registered;
+}
+
 // Adds id="<anchor>" to each <h1>..<h6> opening tag, in document order, so the
 // navigation tree anchors can locate the headings. The opening tag may already
 // contain attributes (notably data-sourcepos), which must be preserved.
@@ -117,8 +129,15 @@ RenderResult CmarkEngine::render(const std::string& markdown, const RenderOption
 {
     RenderResult result;
 
+    // GFM tables are an extension in cmark-gfm, so attach the table parser to
+    // this parser instance.
+    ensureGfmExtensionsRegistered();
+
     cmark_parser* parser =
         cmark_parser_new(CMARK_OPT_SOURCEPOS | CMARK_OPT_UNSAFE);
+    if (cmark_syntax_extension* table = cmark_find_syntax_extension("table")) {
+        cmark_parser_attach_syntax_extension(parser, table);
+    }
     cmark_parser_feed(parser, markdown.data(), markdown.size());
     cmark_node* document = cmark_parser_finish(parser);
 
@@ -128,7 +147,8 @@ RenderResult CmarkEngine::render(const std::string& markdown, const RenderOption
 
         // SOURCEPOS adds data-sourcepos="startLine:col-endLine:col" to every
         // block element, which the preview uses for scroll synchronization.
-        char* html = cmark_render_html(document, CMARK_OPT_UNSAFE | CMARK_OPT_SOURCEPOS);
+        char* html = cmark_render_html(
+            document, CMARK_OPT_UNSAFE | CMARK_OPT_SOURCEPOS, nullptr);
         if (html != nullptr) {
             result.bodyHtml = injectHeadingIds(html, result.outline);
             std::free(html);

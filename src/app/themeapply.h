@@ -21,4 +21,8 @@ bool IsDarkPalette(const ui::Palette& palette);
 ui::ScrollbarColors MakeScrollbarColors(const theme::ThemeDefinition& theme);
 ui::ScrollbarColors MakeScrollbarColors(const ui::Palette& palette);
 
+/// Scrollbar colors for the navigation tree: the track follows the sidebar
+/// background instead of the document surface.
+ui::ScrollbarColors MakeNavScrollbarColors(const ui::Palette& palette);
+
 } // namespace awm

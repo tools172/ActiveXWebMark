@@ -17,6 +17,9 @@ class DocumentFormatRegistry {
 public:
     void registerLoader(std::unique_ptr<IDocumentLoader> loader);
 
+    /// True when some registered loader handles the path's format.
+    bool canLoad(const std::wstring& path) const;
+
     std::unique_ptr<IDocument> load(const std::wstring& path, std::error_code& ec);
 
     /// Registry pre-populated with the built-in loaders (Markdown now; JSONL later).

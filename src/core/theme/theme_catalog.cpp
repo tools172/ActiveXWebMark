@@ -5,6 +5,9 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <utility>
+
+#include "theme/theme_source.h"
 
 namespace awm::theme {
 
@@ -69,25 +72,6 @@ EditorScheme DeriveEditor(const PreviewColors& preview, const ChromeColors& chro
     editor.selectionText = preview.pageText;
     editor.caret = chrome.accent;
     return editor;
-}
-
-/// Returns an opaque color at least `minRatio` away from `bg`. Imported theme
-/// files are authored for their own renderer and occasionally land just below
-/// WCAG AA after alpha flattening; this nudges only those colors.
-ThemeColor EnsureContrast(ThemeColor fg, const ThemeColor& bg, double minRatio)
-{
-    fg.a = 255;
-    if (ContrastRatio(fg, bg) >= minRatio) {
-        return fg;
-    }
-    const ThemeColor toward = RelativeLuminance(bg) > 0.5 ? Rgb(0, 0, 0) : Rgb(255, 255, 255);
-    for (int step = 1; step <= 100; ++step) {
-        const ThemeColor candidate = Blend(fg, toward, static_cast<double>(step) / 100.0);
-        if (ContrastRatio(candidate, bg) >= minRatio) {
-            return candidate;
-        }
-    }
-    return toward;
 }
 
 ThemeDefinition BuildTheme(const ThemeSpec& spec)
@@ -461,17 +445,185 @@ ThemeDefinition Nord()
 
 } // namespace
 
+ThemeColor EnsureContrast(ThemeColor fg, const ThemeColor& bg, double minRatio)
+{
+    fg.a = 255;
+    if (ContrastRatio(fg, bg) >= minRatio) {
+        return fg;
+    }
+    // Pick the direction with the most headroom. For mid-gray backgrounds
+    // neither pure white nor pure black may reach the requested ratio; the
+    // higher-contrast direction gives the best chance (and a sane fallback).
+    const ThemeColor black = Rgb(0, 0, 0);
+    const ThemeColor white = Rgb(255, 255, 255);
+    const ThemeColor toward =
+        ContrastRatio(white, bg) >= ContrastRatio(black, bg) ? white : black;
+    for (int step = 1; step <= 100; ++step) {
+        const ThemeColor candidate = Blend(fg, toward, static_cast<double>(step) / 100.0);
+        if (ContrastRatio(candidate, bg) >= minRatio) {
+            return candidate;
+        }
+    }
+    return toward;
+}
+
+namespace {
+
+std::vector<ThemeDefinition> BuildBuiltinThemes()
+{
+    std::vector<ThemeDefinition> result{
+        GithubLight(), Ulysses(), SolarizedLight(), OneDark(), Dracula(), Nord(),
+    };
+    result.reserve(53);
+    AppendGeneratedThemes(result);
+    return result;
+}
+
+const std::vector<ThemeDefinition>& BuiltinStorage()
+{
+    static const std::vector<ThemeDefinition> themes = BuildBuiltinThemes();
+    return themes;
+}
+
+std::vector<ThemeDefinition>& UserStorage()
+{
+    static std::vector<ThemeDefinition> themes;
+    return themes;
+}
+
+std::vector<ThemeDefinition>& CombinedStorage()
+{
+    static std::vector<ThemeDefinition> themes;
+    return themes;
+}
+
+unsigned& GenerationStorage()
+{
+    static unsigned generation = 0;
+    return generation;
+}
+
+void ApplyUiOverrides(ThemeDefinition& theme, const UiOverrides& ui)
+{
+    if (ui.windowBg) {
+        theme.chrome.windowBg = *ui.windowBg;
+    }
+    if (ui.surface) {
+        theme.chrome.surface = *ui.surface;
+    }
+    if (ui.navBg) {
+        theme.chrome.navBg = *ui.navBg;
+    }
+    if (ui.titleBarBg) {
+        theme.chrome.titleBarBg = *ui.titleBarBg;
+    }
+    if (ui.titleBarInactive) {
+        theme.chrome.titleBarInactive = *ui.titleBarInactive;
+    }
+    if (ui.tabHover) {
+        theme.chrome.tabHover = *ui.tabHover;
+    }
+    if (ui.buttonHover) {
+        theme.chrome.buttonHover = *ui.buttonHover;
+    }
+    if (ui.buttonPressed) {
+        theme.chrome.buttonPressed = *ui.buttonPressed;
+    }
+    if (ui.divider) {
+        theme.chrome.divider = *ui.divider;
+    }
+    if (ui.textPrimary) {
+        theme.chrome.textPrimary = *ui.textPrimary;
+    }
+    if (ui.textSecondary) {
+        theme.chrome.textSecondary = *ui.textSecondary;
+    }
+    if (ui.accent) {
+        theme.chrome.accent = *ui.accent;
+    }
+    if (ui.accentSoft) {
+        theme.chrome.accentSoft = *ui.accentSoft;
+    }
+    if (ui.gutterBg) {
+        theme.chrome.gutterBg = *ui.gutterBg;
+    }
+    if (ui.currentLine) {
+        theme.chrome.currentLine = *ui.currentLine;
+    }
+    if (ui.selection) {
+        theme.chrome.selection = *ui.selection;
+    }
+    if (ui.danger) {
+        theme.chrome.danger = *ui.danger;
+    }
+    if (ui.dirtyDot) {
+        theme.chrome.dirtyDot = *ui.dirtyDot;
+    }
+}
+
+void ApplyOverrides(ThemeDefinition& theme,
+                    const std::map<std::string, ThemeColor>& overrides)
+{
+    const auto apply = [&overrides](const char* key, ThemeColor& target) {
+        const auto it = overrides.find(key);
+        if (it != overrides.end()) {
+            target = it->second;
+        }
+    };
+
+    apply("preview.codeBlockBorder", theme.preview.codeBlockBorder);
+
+    apply("chrome.windowBg", theme.chrome.windowBg);
+    apply("chrome.surface", theme.chrome.surface);
+    apply("chrome.navBg", theme.chrome.navBg);
+    apply("chrome.titleBarBg", theme.chrome.titleBarBg);
+    apply("chrome.titleBarInactive", theme.chrome.titleBarInactive);
+    apply("chrome.tabHover", theme.chrome.tabHover);
+    apply("chrome.buttonHover", theme.chrome.buttonHover);
+    apply("chrome.buttonPressed", theme.chrome.buttonPressed);
+    apply("chrome.divider", theme.chrome.divider);
+    apply("chrome.textPrimary", theme.chrome.textPrimary);
+    apply("chrome.textSecondary", theme.chrome.textSecondary);
+    apply("chrome.accent", theme.chrome.accent);
+    apply("chrome.accentSoft", theme.chrome.accentSoft);
+    apply("chrome.gutterBg", theme.chrome.gutterBg);
+    apply("chrome.currentLine", theme.chrome.currentLine);
+    apply("chrome.selection", theme.chrome.selection);
+    apply("chrome.danger", theme.chrome.danger);
+    apply("chrome.dirtyDot", theme.chrome.dirtyDot);
+
+    apply("editor.background", theme.editor.background);
+    apply("editor.text", theme.editor.text);
+    apply("editor.heading", theme.editor.heading);
+    apply("editor.emphasis", theme.editor.emphasis);
+    apply("editor.strong", theme.editor.strong);
+    apply("editor.code", theme.editor.code);
+    apply("editor.codeBlock", theme.editor.codeBlock);
+    apply("editor.link", theme.editor.link);
+    apply("editor.image", theme.editor.image);
+    apply("editor.listMarker", theme.editor.listMarker);
+    apply("editor.blockQuote", theme.editor.blockQuote);
+    apply("editor.html", theme.editor.html);
+    apply("editor.hrule", theme.editor.hrule);
+    apply("editor.comment", theme.editor.comment);
+    apply("editor.reference", theme.editor.reference);
+    apply("editor.gutterBg", theme.editor.gutterBg);
+    apply("editor.gutterText", theme.editor.gutterText);
+    apply("editor.currentLine", theme.editor.currentLine);
+    apply("editor.selection", theme.editor.selection);
+    apply("editor.selectionText", theme.editor.selectionText);
+    apply("editor.caret", theme.editor.caret);
+}
+
+} // namespace
+
 const std::vector<ThemeDefinition>& AllThemes()
 {
-    static const std::vector<ThemeDefinition> themes = [] {
-        std::vector<ThemeDefinition> result{
-            GithubLight(), Ulysses(), SolarizedLight(), OneDark(), Dracula(), Nord(),
-        };
-        result.reserve(53);
-        AppendGeneratedThemes(result);
-        return result;
-    }();
-    return themes;
+    std::vector<ThemeDefinition>& combined = CombinedStorage();
+    if (combined.empty()) {
+        combined = BuiltinStorage();
+    }
+    return combined;
 }
 
 const ThemeDefinition& DefaultTheme()
@@ -482,7 +634,7 @@ const ThemeDefinition& DefaultTheme()
 const ThemeDefinition* FindTheme(std::string_view id)
 {
     for (const ThemeDefinition& theme : AllThemes()) {
-        if (id == theme.id) {
+        if (id == std::string_view(theme.id)) {
             return &theme;
         }
     }
@@ -501,11 +653,129 @@ int IndexOfTheme(std::string_view id)
 {
     const std::vector<ThemeDefinition>& themes = AllThemes();
     for (std::size_t i = 0; i < themes.size(); ++i) {
-        if (id == themes[i].id) {
+        if (id == std::string_view(themes[i].id)) {
             return static_cast<int>(i);
         }
     }
     return -1;
+}
+
+std::size_t BuiltinThemeCount()
+{
+    return BuiltinStorage().size();
+}
+
+void SetUserThemes(std::vector<ThemeDefinition> themes)
+{
+    if (themes.size() > kMaxUserThemes) {
+        themes.resize(kMaxUserThemes);
+    }
+
+    UserStorage() = std::move(themes);
+
+    std::vector<ThemeDefinition>& combined = CombinedStorage();
+    combined = BuiltinStorage();
+    combined.reserve(BuiltinThemeCount() + kMaxUserThemes);
+    combined.insert(combined.end(), UserStorage().begin(), UserStorage().end());
+    ++GenerationStorage();
+}
+
+void ClearUserThemes()
+{
+    SetUserThemes({});
+}
+
+unsigned CatalogGeneration()
+{
+    return GenerationStorage();
+}
+
+const std::vector<ThemeDefinition>& UserThemes()
+{
+    return UserStorage();
+}
+
+ThemeDefinition BuildDefinition(const ThemeSource& source, bool userDefined)
+{
+    ThemeSpec spec{};
+    spec.id = source.id.c_str();
+    spec.name = source.name.c_str();
+    spec.dark = source.dark;
+    spec.pageBg = source.background;
+    spec.editorColor80 = source.text;
+    spec.editorColor50 = source.muted;
+    spec.editorColor10 = source.border;
+    spec.editorColor04 = Blend(source.background, source.text, 0.04);
+    spec.accent = source.accent;
+    spec.danger = source.danger;
+    spec.codeBlockBg = source.codeBackground;
+    spec.codeBlockColor = source.codeText;
+    spec.tableBorder = source.tableBorder;
+    spec.hr = source.hr;
+    spec.link = source.link;
+    spec.strong = source.strong;
+    spec.em = source.emphasis;
+    spec.listMarker = source.listMarker;
+    for (int i = 0; i < 6; ++i) {
+        spec.headings[i] = source.headings[i];
+    }
+    spec.blockquoteText = source.blockquoteText;
+    spec.blockquoteBorder = source.blockquoteBorder;
+    spec.sideBarBg = source.sidebarBackground;
+    spec.sideBarItemHover = source.sidebarHover;
+    spec.selectionColor = source.selection;
+    spec.findMatchBg = source.findMatch;
+    spec.findCurrentBg = source.findCurrent;
+    spec.findText = source.findText;
+    spec.tokens = source.tokens;
+    spec.author = source.author.c_str();
+    spec.family = source.family;
+
+    ThemeDefinition theme = BuildTheme(spec);
+    theme.userDefined = userDefined;
+    theme.source = source.source;
+    theme.license = source.license;
+    theme.typography = source.typography;
+    std::vector<std::string> warnings;
+    theme.extraCss = SanitizeThemeCss(source.extraCss, warnings);
+
+    ApplyUiOverrides(theme, source.ui);
+    // UI overrides can change the accent/chrome; keep the editor scheme in
+    // step before applying explicit editor overrides.
+    theme.editor = DeriveEditor(theme.preview, theme.chrome);
+    ApplyOverrides(theme, source.overrides);
+
+    if (userDefined) {
+        const ThemeColor codeBg = theme.preview.codeBlockBg;
+        theme.preview.pageText =
+            EnsureContrast(theme.preview.pageText, theme.preview.pageBg, 4.5);
+        theme.preview.mutedText =
+            EnsureContrast(theme.preview.mutedText, theme.preview.pageBg, 3.0);
+        theme.preview.blockquoteText =
+            EnsureContrast(theme.preview.blockquoteText, theme.preview.pageBg, 3.0);
+        theme.chrome.textPrimary =
+            EnsureContrast(theme.chrome.textPrimary, theme.chrome.surface, 4.5);
+        theme.chrome.textSecondary =
+            EnsureContrast(theme.chrome.textSecondary, theme.chrome.surface, 3.0);
+        theme.editor.text =
+            EnsureContrast(theme.editor.text, theme.editor.background, 4.5);
+        theme.tokens.comment = EnsureContrast(theme.tokens.comment, codeBg, 3.0);
+        theme.tokens.punctuation = EnsureContrast(theme.tokens.punctuation, codeBg, 3.0);
+        theme.tokens.tag = EnsureContrast(theme.tokens.tag, codeBg, 3.0);
+        theme.tokens.property = EnsureContrast(theme.tokens.property, codeBg, 3.0);
+        theme.tokens.booleanNumber =
+            EnsureContrast(theme.tokens.booleanNumber, codeBg, 3.0);
+        theme.tokens.string = EnsureContrast(theme.tokens.string, codeBg, 3.0);
+        theme.tokens.oper = EnsureContrast(theme.tokens.oper, codeBg, 3.0);
+        theme.tokens.function = EnsureContrast(theme.tokens.function, codeBg, 3.0);
+        theme.tokens.keyword = EnsureContrast(theme.tokens.keyword, codeBg, 3.0);
+        theme.tokens.regex = EnsureContrast(theme.tokens.regex, codeBg, 3.0);
+        for (int i = 0; i < 6; ++i) {
+            theme.preview.headings[i] =
+                EnsureContrast(theme.preview.headings[i], theme.preview.pageBg, 3.0);
+        }
+    }
+    return theme;
 }
 
 namespace {
@@ -537,6 +807,7 @@ const char* const kAuthorOrder[] = {
     "Ian Beck（One Crayon）",
     "Ofer Reichman",
     "1ClickComputing",
+    "本地导入",
 };
 
 int AuthorRank(std::string_view author)
@@ -599,8 +870,8 @@ std::vector<ThemeGroup> ThemesGroupedByAuthor()
     std::vector<ThemeGroup> groups;
     const std::vector<ThemeDefinition>& themes = AllThemes();
     for (std::size_t i = 0; i < themes.size(); ++i) {
-        const char* author = themes[i].author != nullptr ? themes[i].author : "";
-        auto it = std::find_if(groups.begin(), groups.end(), [author](const ThemeGroup& group) {
+        const std::string& author = themes[i].author;
+        auto it = std::find_if(groups.begin(), groups.end(), [&author](const ThemeGroup& group) {
             return group.label == author;
         });
         if (it == groups.end()) {
@@ -611,12 +882,12 @@ std::vector<ThemeGroup> ThemesGroupedByAuthor()
     }
 
     std::sort(groups.begin(), groups.end(), [](const ThemeGroup& a, const ThemeGroup& b) {
-        const int rankA = AuthorRank(a.label);
-        const int rankB = AuthorRank(b.label);
+        const int rankA = AuthorRank(std::string_view(a.label));
+        const int rankB = AuthorRank(std::string_view(b.label));
         if (rankA != rankB) {
             return rankA < rankB;
         }
-        return AsciiLess(a.label, b.label);
+        return AsciiLess(std::string_view(a.label), std::string_view(b.label));
     });
     return groups;
 }

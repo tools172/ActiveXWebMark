@@ -19,10 +19,13 @@ constexpr int kViewToggleSplit = 1014;
 constexpr int kViewScrollSync = 1015;
 
 // Theme selection. IDs are contiguous so menu radio checks can use a range.
-// The block starts after the edit commands (1020-1029) and leaves room for
-// future themes before the help commands (1100+).
-constexpr int kViewThemeBase = 1030;
-constexpr int kViewThemeMax = 64;
+// The block lives between the edit commands and the recent-file block, and is
+// large enough for the built-in catalog plus user-imported themes.
+constexpr int kViewThemeBase = 1200;
+constexpr int kViewThemeMax = 512;
+
+// Opens the theme settings window.
+constexpr int kViewThemeSettings = 1023;
 
 // Edit commands.
 constexpr int kEditFind = 1020;
@@ -33,14 +36,21 @@ constexpr int kEditFindPrevious = 1022;
 constexpr int kHelpCheckUpdates = 1101;
 constexpr int kHelpAbout = 1100;
 
+static_assert(kViewThemeSettings > kEditFindPrevious,
+              "Theme settings ID collides with edit commands");
+static_assert(kViewThemeSettings < kHelpAbout,
+              "Theme settings ID collides with help commands");
 static_assert(kViewThemeBase > kEditFindPrevious, "Theme IDs collide with edit commands");
-static_assert(kViewThemeBase + kViewThemeMax - 1 < kHelpAbout,
-              "Theme IDs collide with help commands");
-static_assert(kViewThemeMax >= 53, "Theme command range must hold the full catalog");
+static_assert(kViewThemeBase + kViewThemeMax - 1 <= 0xFFFF,
+              "Theme IDs must fit in WM_COMMAND's WORD id");
+static_assert(kViewThemeMax >= 53 + 459, "Theme command range must hold built-in and user themes");
 
 // Recent-file menu commands. IDs 3000..3019 are the first page.
 constexpr int kRecentBase = 3000;
 constexpr int kRecentCount = 20;
 constexpr int kRecentMore = 3021;
+
+static_assert(kViewThemeBase + kViewThemeMax - 1 < kRecentBase,
+              "Theme IDs collide with recent-file commands");
 
 } // namespace awm::cmd

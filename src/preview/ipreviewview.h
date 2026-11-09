@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace awm {
 
@@ -39,6 +40,10 @@ public:
     /// Destroys the native control and unhooks events. Safe to call twice.
     virtual void Destroy() = 0;
     virtual void SetBounds(const RECT& rc) = 0;
+    /// Resizes during an interactive drag. Engines may use a lighter path than
+    /// SetBounds() (for example, skipping scroll restoration and background
+    /// erase) to keep live splitter dragging smooth. The default delegates.
+    virtual void SetLiveBounds(const RECT& rc) { SetBounds(rc); }
     virtual void Show(bool visible) = 0;
 
     /// Replaces the rendered document.
@@ -52,6 +57,9 @@ public:
     virtual void ScrollToAnchor(const std::string& anchor) = 0;
     /// Scrolls so the given 1-based Markdown source line is at the top.
     virtual void ScrollToSourceLine(double sourceLine) = 0;
+    /// Marks cached source positions stale after a DOM update that did not go
+    /// through SetHtml (for example an asynchronously inserted diagram image).
+    virtual void InvalidateScrollMap() {}
     /// True when the rendered document exposes source line positions.
     virtual bool SupportsSourceMapping() const = 0;
     /// Executes JavaScript. Returns false if the engine does not support it.
@@ -80,6 +88,16 @@ public:
     virtual bool TranslateAccelerator(MSG* msg) = 0;
 
     virtual bool SupportsJavaScript() const = 0;
+
+    /// Invoked when local files are dropped on the preview surface.
+    /// `isSupported` filters which paths can be opened (returns true when the
+    /// file format is handled). Engines that cannot intercept their native
+    /// drop target may ignore this.
+    virtual void SetFileDropHandler(
+        std::function<void(std::vector<std::wstring>)> /*handler*/,
+        std::function<bool(const std::wstring&)> /*isSupported*/)
+    {
+    }
 };
 
 /// The set of render engines known to the factory.

@@ -1,9 +1,11 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #include "wtlinclude.h"
 
@@ -24,6 +26,7 @@
 namespace awm {
 
 class DocumentView;
+class DiagramService;
 
 /// Dependencies injected by MainWindow.
 struct DocumentViewServices {
@@ -33,8 +36,15 @@ struct DocumentViewServices {
     std::function<std::unique_ptr<IEditorView>()> createEditor;
     std::function<std::unique_ptr<IPreviewView>()> createPreview;
     std::function<void(const std::string& url)> onOpenLink;
+    /// Opens local files dropped on the editor, preview or navigation panel.
+    std::function<void(std::vector<std::wstring>)> onDropFiles;
+    /// True when the file's format can be opened; rejected files show the
+    /// no-drop cursor instead of triggering an error dialog.
+    std::function<bool(const std::wstring&)> isSupportedFile;
     /// Prism bundle embedded in the executable; null disables highlighting.
     const PreviewAssets* previewAssets = nullptr;
+    /// Shared diagram sidecar; null disables Mermaid/PlantUML rendering.
+    DiagramService* diagrams = nullptr;
 };
 
 /// Notifications from a document view back to its owner.
@@ -75,6 +85,9 @@ public:
     ///   bits 32-39 document.documentMode
     ///   bits 40-47 number of <script> elements in the preview document
     static constexpr UINT kTestPreviewStateMessage = WM_APP + 0x54;
+    /// Posted by the Mermaid sidecar reader thread when a render finishes.
+    /// LPARAM owns a heap-allocated DiagramRenderResult.
+    static constexpr UINT kDiagramResultMessage = WM_APP + 0x55;
 
     ~DocumentView() override;
 
@@ -130,6 +143,7 @@ public:
         MESSAGE_HANDLER(kNavRepaintMessage, OnNavRepaint)
         MESSAGE_HANDLER(kTestFindStateMessage, OnTestFindState)
         MESSAGE_HANDLER(kTestPreviewStateMessage, OnTestPreviewState)
+        MESSAGE_HANDLER(kDiagramResultMessage, OnDiagramResult)
     END_MSG_MAP()
 
 private:
@@ -141,6 +155,7 @@ private:
     LRESULT OnNavRepaint(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnTestFindState(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnTestPreviewState(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnDiagramResult(UINT, WPARAM, LPARAM, BOOL&);
 
     void EnsurePreview();
     void Layout();
@@ -186,6 +201,10 @@ private:
     bool rendered_ = false;
     bool renderScheduled_ = false;
     bool reportedDirty_ = false;
+    /// Cleared in the destructor so late sidecar callbacks do not post to a
+    /// destroyed window.
+    std::shared_ptr<std::atomic<bool>> callbackAlive_ =
+        std::make_shared<std::atomic<bool>>(true);
 };
 
 } // namespace awm

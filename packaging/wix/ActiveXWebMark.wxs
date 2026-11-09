@@ -33,7 +33,10 @@
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="ActiveXWebMark" />
+      <Directory Id="INSTALLFOLDER" Name="ActiveXWebMark">
+        <Directory Id="MermaidFolder" Name="mermaid" />
+        <Directory Id="PlantUmlFolder" Name="plantuml" />
+      </Directory>
     </StandardDirectory>
 
     <StandardDirectory Id="ProgramMenuFolder">
@@ -46,6 +49,70 @@
       <Component Id="MainExecutable" Guid="*">
         <File Id="MainExe"
               Source="$(env.AWM_EXE)"
+              KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Node sidecar and Mermaid bundle used for diagram rendering. -->
+    <ComponentGroup Id="MermaidComponents" Directory="MermaidFolder">
+      <Component Id="MermaidSidecar" Guid="*">
+        <File Id="MermaidSidecarFile"
+              Source="third_party\mermaid\sidecar.cjs"
+              KeyPath="yes" />
+      </Component>
+      <Component Id="MermaidBundle" Guid="*">
+        <File Id="MermaidBundleFile"
+              Source="third_party\mermaid\mermaid.min.js"
+              KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- PlantUML headless native runtime staged by tools\plantuml-native\fetch.ps1.
+         A missing file makes the WiX build fail before an installer is produced. -->
+    <ComponentGroup Id="PlantUmlComponents" Directory="PlantUmlFolder">
+      <Component Id="PlantUmlExe" Guid="*">
+        <File Id="PlantUmlExeFile"
+              Source="build\plantuml-native\staging\plantuml-headless.exe"
+              KeyPath="yes" />
+      </Component>
+      <Component Id="PlantUmlAwt" Guid="*">
+        <File Id="PlantUmlAwtFile" Source="build\plantuml-native\staging\awt.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="PlantUmlFontManager" Guid="*">
+        <File Id="PlantUmlFontManagerFile" Source="build\plantuml-native\staging\fontmanager.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="PlantUmlFreetype" Guid="*">
+        <File Id="PlantUmlFreetypeFile" Source="build\plantuml-native\staging\freetype.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="PlantUmlJavaDll" Guid="*">
+        <File Id="PlantUmlJavaDllFile" Source="build\plantuml-native\staging\java.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="PlantUmlAccessBridge" Guid="*">
+        <File Id="PlantUmlAccessBridgeFile" Source="build\plantuml-native\staging\javaaccessbridge.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="PlantUmlJpeg" Guid="*">
+        <File Id="PlantUmlJpegFile" Source="build\plantuml-native\staging\javajpeg.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="PlantUmlJawt" Guid="*">
+        <File Id="PlantUmlJawtFile" Source="build\plantuml-native\staging\jawt.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="PlantUmlJvm" Guid="*">
+        <File Id="PlantUmlJvmFile" Source="build\plantuml-native\staging\jvm.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="PlantUmlLcms" Guid="*">
+        <File Id="PlantUmlLcmsFile" Source="build\plantuml-native\staging\lcms.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="PlantUmlMlibImage" Guid="*">
+        <File Id="PlantUmlMlibImageFile" Source="build\plantuml-native\staging\mlib_image.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="PlantUmlLicense" Guid="*">
+        <File Id="PlantUmlLicenseFile"
+              Source="build\plantuml-native\staging\LICENSE.plantuml"
+              KeyPath="yes" />
+      </Component>
+      <Component Id="PlantUmlLicenseNotice" Guid="*">
+        <File Id="PlantUmlLicenseNoticeFile"
+              Source="build\plantuml-native\staging\license.txt"
               KeyPath="yes" />
       </Component>
     </ComponentGroup>
@@ -145,6 +212,8 @@
 
     <Feature Id="MainFeature" Title="ActiveXWebMark" Level="1">
       <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="MermaidComponents" />
+      <ComponentGroupRef Id="PlantUmlComponents" />
       <ComponentGroupRef Id="StartMenuShortcutComponents" />
       <ComponentGroupRef Id="DesktopShortcutComponents" />
       <ComponentGroupRef Id="AssociationComponents" />

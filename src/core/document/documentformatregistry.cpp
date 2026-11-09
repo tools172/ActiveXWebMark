@@ -11,6 +11,16 @@ void DocumentFormatRegistry::registerLoader(std::unique_ptr<IDocumentLoader> loa
     loaders_.push_back(std::move(loader));
 }
 
+bool DocumentFormatRegistry::canLoad(const std::wstring& path) const
+{
+    for (const auto& loader : loaders_) {
+        if (loader->canLoad(path)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::unique_ptr<IDocument> DocumentFormatRegistry::load(const std::wstring& path,
                                                         std::error_code& ec)
 {

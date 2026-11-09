@@ -296,7 +296,7 @@ try {
     foreach ($theme in $themes) {
         Write-Host "Theme: $($theme.Id)"
         [void][AwmThemeSmoke]::PostMessage(
-            $main, 0x0111, [IntPtr](1030 + $theme.Index), [IntPtr]::Zero)
+            $main, 0x0111, [IntPtr](1200 + $theme.Index), [IntPtr]::Zero)
 
         $state = Wait-ThemeState $documentView $theme.Dark $themeTimeoutMs
         Check ($state.Prism -eq 1) "Prism loaded"

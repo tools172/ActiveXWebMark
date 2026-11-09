@@ -4,7 +4,7 @@
 
 namespace awm {
 
-/// Markdown engine backed by the cmark (CommonMark) reference parser.
+/// Markdown engine backed by the cmark-gfm parser (CommonMark + GFM tables).
 ///
 /// Produces standards-compliant CommonMark HTML (fenced code blocks, lists
 /// interrupting paragraphs, etc.), unlike Discount which is Markdown.pl-style.

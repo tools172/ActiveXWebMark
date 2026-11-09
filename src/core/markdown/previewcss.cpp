@@ -1,11 +1,19 @@
 #include "markdown/previewcss.h"
 
+#include <cstdio>
+#include <string>
+
 namespace awm {
 
 namespace {
 
 using theme::ColorToCss;
 using theme::ThemeColor;
+
+constexpr const char* kDefaultBodyFont =
+    "'Segoe UI','Microsoft YaHei UI','Microsoft YaHei',sans-serif";
+constexpr const char* kDefaultCodeFont =
+    "Consolas,'Cascadia Mono','Courier New',monospace";
 
 void appendRule(std::string& css, const char* selector, const ThemeColor& color)
 {
@@ -15,7 +23,46 @@ void appendRule(std::string& css, const char* selector, const ThemeColor& color)
     css += ";}";
 }
 
+std::string CssNumber(double value)
+{
+    char buffer[32] = {};
+    std::snprintf(buffer, sizeof(buffer), "%g", value);
+    return buffer;
+}
+
+/// Rejects font-family strings that could terminate the declaration or pull in
+/// a CSS function. Quotes and commas are allowed (font stacks need them).
+std::string SafeFont(const std::string& font, const char* fallback)
+{
+    if (font.empty()) {
+        return fallback;
+    }
+    if (font.find_first_of(";{}<>@\\()") != std::string::npos) {
+        return fallback;
+    }
+    return font;
+}
+
 } // namespace
+
+double CopyIconOpacity(const theme::ThemeDefinition& theme)
+{
+    // WCAG's non-text contrast floor; the icon has no border or backdrop in its
+    // resting state, so its own blended color must stay visible everywhere.
+    constexpr double kMinimumOpacity = 0.55;
+    constexpr double kMinimumContrast = 3.0;
+    constexpr int kSteps = 9; // 0.55 .. 1.00 in 0.05 increments
+    for (int step = 0; step <= kSteps; ++step) {
+        // Integer hundredths keep the values exact (0.55 + 0.05 * 7 drifts).
+        const double opacity = static_cast<double>(55 + 5 * step) / 100.0;
+        const ThemeColor blended =
+            theme::Blend(theme.preview.codeBlockBg, theme.preview.codeBlockText, opacity);
+        if (theme::ContrastRatio(blended, theme.preview.codeBlockBg) >= kMinimumContrast) {
+            return opacity;
+        }
+    }
+    return 1.0;
+}
 
 std::string BuildPreviewCss(const theme::ThemeDefinition& theme)
 {
@@ -25,15 +72,38 @@ std::string BuildPreviewCss(const theme::ThemeDefinition& theme)
     std::string css;
     css.reserve(4096);
 
+    const theme::ThemeTypography& type = theme.typography;
+    const std::string bodyFont = SafeFont(type.bodyFont, kDefaultBodyFont);
+    const std::string codeFont = SafeFont(type.codeFont, kDefaultCodeFont);
+    const int bodySize = type.bodySize > 0 ? type.bodySize : 15;
+    const double lineHeight = type.lineHeight > 0.0 ? type.lineHeight : 1.75;
+    const int maxWidth = type.maxWidth > 0 ? type.maxWidth : 980;
+    const int padTop = type.padTop >= 0 ? type.padTop : 32;
+    const int padRight = type.padRight >= 0 ? type.padRight : 40;
+    const int padBottom = type.padBottom >= 0 ? type.padBottom : 64;
+    const int codeSize = type.codeSize > 0 ? type.codeSize : 13;
+
     css += "html,body{margin:0;padding:0;}";
     css += "body{background:";
     css += ColorToCss(preview.pageBg);
     css += ";color:";
     css += ColorToCss(preview.pageText);
-    css += ";font-family:'Segoe UI','Microsoft YaHei UI','Microsoft YaHei',sans-serif;"
-           "font-size:15px;line-height:1.75;-webkit-text-size-adjust:100%;}";
-    css += ".markdown-body{max-width:980px;margin:0 auto;padding:32px 40px 64px;"
-           "overflow-wrap:break-word;word-wrap:break-word;}";
+    css += ";font-family:";
+    css += bodyFont;
+    css += ";font-size:";
+    css += std::to_string(bodySize);
+    css += "px;line-height:";
+    css += CssNumber(lineHeight);
+    css += ";-webkit-text-size-adjust:100%;}";
+    css += ".markdown-body{max-width:";
+    css += std::to_string(maxWidth);
+    css += "px;margin:0 auto;padding:";
+    css += std::to_string(padTop);
+    css += "px ";
+    css += std::to_string(padRight);
+    css += "px ";
+    css += std::to_string(padBottom);
+    css += "px;overflow-wrap:break-word;word-wrap:break-word;}";
     css += "h1,h2,h3,h4,h5,h6{font-weight:600;line-height:1.3;margin:28px 0 14px;}";
 
     const auto appendHeading = [&](const char* selector, const ThemeColor& color,
@@ -70,8 +140,9 @@ std::string BuildPreviewCss(const theme::ThemeDefinition& theme)
     css += ";}em{color:";
     css += ColorToCss(preview.em);
     css += ";}";
-    css += "code{font-family:Consolas,'Cascadia Mono','Courier New',monospace;"
-           "font-size:90%;background:";
+    css += "code{font-family:";
+    css += codeFont;
+    css += ";font-size:90%;background:";
     css += ColorToCss(preview.inlineCodeBg);
     css += ";color:";
     css += ColorToCss(preview.inlineCodeText);
@@ -80,10 +151,35 @@ std::string BuildPreviewCss(const theme::ThemeDefinition& theme)
     css += ColorToCss(preview.codeBlockBg);
     css += ";border:1px solid ";
     css += ColorToCss(preview.codeBlockBorder);
-    css += ";border-radius:6px;padding:14px 16px;overflow:auto;line-height:1.5;}";
-    css += "pre code{background:none;padding:0;font-size:13px;color:";
+    css += ";border-radius:6px;padding:14px 16px;overflow:auto;line-height:1.5;"
+           "position:relative;}";
+    css += "pre code{background:none;padding:0;font-size:";
+    css += std::to_string(codeSize);
+    css += "px;color:";
     css += ColorToCss(preview.codeBlockText);
     css += ";}";
+
+    // Per-code-block copy icon, inserted by the preview script. It stays hidden
+    // until the block is hovered so it does not distract while reading. The
+    // glyph is translucent by default and turns opaque with a faint background
+    // patch on hover; the patch keeps it legible over every theme's code block
+    // without drawing a border around it.
+    const ThemeColor copyHoverBg =
+        theme::Blend(preview.codeBlockBg, preview.codeBlockText, 0.14);
+    css += ".awm-copy{display:none;position:absolute;top:6px;right:8px;width:26px;"
+           "height:22px;padding:0;cursor:pointer;opacity:";
+    css += CssNumber(CopyIconOpacity(theme));
+    css += ";border:0;background:transparent;border-radius:4px;color:";
+    css += ColorToCss(preview.codeBlockText);
+    css += ";}";
+    css += ".awm-copy svg{display:block;width:14px;height:14px;margin:4px auto 0;}";
+    css += ".awm-copy .awm-copy-done{display:none;}";
+    css += ".awm-copy.awm-copied .awm-copy-icon{display:none;}";
+    css += ".awm-copy.awm-copied .awm-copy-done{display:block;}";
+    css += "pre:hover .awm-copy,.awm-copy:focus{display:block;}";
+    css += ".awm-copy:hover{background:";
+    css += ColorToCss(copyHoverBg);
+    css += ";opacity:1;}";
     css += "blockquote{border-left:4px solid ";
     css += ColorToCss(preview.blockquoteBorder);
     css += ";color:";
@@ -100,7 +196,9 @@ std::string BuildPreviewCss(const theme::ThemeDefinition& theme)
     css += "hr{height:1px;border:0;background:";
     css += ColorToCss(preview.hr);
     css += ";margin:24px 0;}";
-    css += "kbd{font-family:Consolas,monospace;font-size:85%;border:1px solid ";
+    css += "kbd{font-family:";
+    css += codeFont;
+    css += ";font-size:85%;border:1px solid ";
     css += ColorToCss(preview.tableBorder);
     css += ";border-bottom-width:2px;border-radius:4px;padding:1px 5px;background:";
     css += ColorToCss(preview.inlineCodeBg);
@@ -177,6 +275,18 @@ std::string BuildPreviewCss(const theme::ThemeDefinition& theme)
     css += ".token.italic{font-style:italic;}";
     css += ".token.entity{cursor:help;}";
     css += ".token.namespace{opacity:.7;}";
+
+    // Mermaid diagrams. The sidecar gives the SVG explicit width/height, so
+    // IE11 does not fall back to its 150px default; max-width keeps large
+    // diagrams inside the pane. Until the SVG is ready the source stays
+    // visible inside the placeholder.
+    css += ".awm-diagram{margin:0 0 16px;}";
+    css += ".awm-diagram pre{margin:0;}";
+    css += ".awm-diagram img{display:block;max-width:100%;height:auto;margin:0 auto;}";
+    css += ".awm-diagram-status{margin-top:4px;font-size:12px;opacity:.7;"
+           "text-align:center;color:";
+    css += ColorToCss(preview.pageText);
+    css += ";}";
 
     return css;
 }

@@ -13,10 +13,13 @@ add_executable(awm_core_tests
     core/document_session_test.cpp
     core/recent_files_test.cpp
     core/previewhtml_test.cpp
+    core/diagramblocks_test.cpp
     core/theme_catalog_test.cpp
+    core/theme_custom_test.cpp
     core/update_test.cpp
 )
 
+target_include_directories(awm_core_tests PRIVATE ${CMAKE_SOURCE_DIR}/third_party/miniz)
 target_link_libraries(awm_core_tests PRIVATE awm_core GTest::gtest_main)
 
 add_test(NAME awm_core_tests COMMAND awm_core_tests)
@@ -37,6 +40,7 @@ add_test(NAME awm_layout_tests COMMAND awm_layout_tests)
 add_executable(awm_ui_tests
     ui/titlebar_test.cpp
     ui/theme_test.cpp
+    ui/filedroptarget_test.cpp
 )
 
 target_link_libraries(awm_ui_tests PRIVATE awm_ui GTest::gtest_main)

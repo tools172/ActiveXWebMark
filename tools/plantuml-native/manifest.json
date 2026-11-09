@@ -1,0 +1,6 @@
+{
+  "version": "1.2026.4",
+  "url": "https://github.com/plantuml/plantuml/releases/download/v1.2026.4-native/plantuml-headless-win-amd64-1.2026.4.zip",
+  "sha256": "99ec178b41beb80a3d9b18dff43fa22c6211ae6578e9d1a8902ae277d33fd383",
+  "exe": "plantuml-headless.exe"
+}

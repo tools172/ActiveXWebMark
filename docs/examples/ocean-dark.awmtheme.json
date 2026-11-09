@@ -1,0 +1,69 @@
+{
+  "$schema": "../awmtheme.schema.json",
+  "schemaVersion": 1,
+  "id": "example-ocean-dark",
+  "name": "Ocean Dark",
+  "author": "ActiveXWebMark",
+  "license": "MIT",
+  "dark": true,
+  "family": "Blue",
+  "markdown": {
+    "background": "#0f1720",
+    "text": "#d7e0ea",
+    "muted": "#8fa2b5",
+    "accent": "#3aa0ff",
+    "link": "#5ab0ff",
+    "border": "#243241",
+    "hr": "#243241",
+    "strong": "#ffffff",
+    "emphasis": "#c9d6e4",
+    "listMarker": "#7f94a8",
+    "headings": ["#ffffff", "#e6eef7", "#d7e0ea", "#d7e0ea", "#d7e0ea", "#9fb0c2"],
+    "blockquote": {
+      "text": "#9fb0c2",
+      "border": "#3aa0ff"
+    },
+    "code": {
+      "background": "#131e29",
+      "text": "#d7e0ea",
+      "border": "#243241"
+    },
+    "table": {
+      "border": "#243241",
+      "headBackground": "#131e29"
+    },
+    "selection": "rgba(58,160,255,0.25)",
+    "find": {
+      "match": "rgba(58,160,255,0.40)",
+      "current": "rgba(58,160,255,0.60)",
+      "text": "#0f1720"
+    },
+    "sidebar": {
+      "background": "#0c131b",
+      "hover": "#152130"
+    },
+    "danger": "#ff6b6b"
+  },
+  "tokens": {
+    "comment": "#6b7d90",
+    "punctuation": "#a9b8c7",
+    "tag": "#ff7ab2",
+    "property": "#7cc7ff",
+    "booleanNumber": "#ffb86c",
+    "string": "#8ce99a",
+    "operator": "#ff9e64",
+    "function": "#c792ea",
+    "keyword": "#ff7ab2",
+    "regex": "#ffd166"
+  },
+  "typography": {
+    "bodyFont": "'Segoe UI','Microsoft YaHei UI','Microsoft YaHei',sans-serif",
+    "codeFont": "Consolas,'Cascadia Mono','Courier New',monospace",
+    "bodySize": 15,
+    "lineHeight": 1.75,
+    "maxWidth": 980,
+    "padding": [32, 40, 64],
+    "codeSize": 13
+  },
+  "extraCss": "h1{letter-spacing:-0.01em;}"
+}

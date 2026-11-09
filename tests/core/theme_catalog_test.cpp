@@ -20,8 +20,7 @@ TEST(ThemeCatalog, HasAllThemesAndGithubDefault)
         EXPECT_TRUE(ids.insert(entry.id).second) << "duplicate id " << entry.id;
         EXPECT_TRUE(names.insert(entry.displayName).second)
             << "duplicate display name " << entry.displayName;
-        EXPECT_NE(entry.author, nullptr);
-        EXPECT_FALSE(std::string(entry.author).empty()) << entry.id;
+        EXPECT_FALSE(entry.author.empty()) << entry.id;
     }
 
     EXPECT_EQ(std::string(theme::DefaultTheme().id), "github-light");
@@ -120,11 +119,31 @@ TEST(ThemeCatalog, PreviewCssIsThemedAndIe11Safe)
         EXPECT_NE(css.find(".token.comment"), std::string::npos) << entry.id;
         EXPECT_NE(css.find(".awm-find"), std::string::npos) << entry.id;
         EXPECT_NE(css.find("pre code"), std::string::npos) << entry.id;
+        EXPECT_NE(css.find(".awm-copy"), std::string::npos) << entry.id;
+        EXPECT_NE(css.find(".awm-copy.awm-copied"), std::string::npos) << entry.id;
+        EXPECT_NE(css.find("pre:hover .awm-copy"), std::string::npos) << entry.id;
         EXPECT_NE(css.find("scrollbar-face-color:"), std::string::npos) << entry.id;
         EXPECT_NE(css.find("scrollbar-track-color:"), std::string::npos) << entry.id;
         EXPECT_EQ(css.find("var("), std::string::npos) << entry.id;
         EXPECT_EQ(css.find(":root"), std::string::npos) << entry.id;
         EXPECT_EQ(css.find("--"), std::string::npos) << entry.id;
+    }
+}
+
+TEST(ThemeCatalog, CopyIconStaysLegibleOnEveryCodeBlock)
+{
+    // The copy icon is translucent over the code-block background; the theme
+    // picks the lowest opacity that still clears the WCAG non-text floor.
+    for (const theme::ThemeDefinition& entry : theme::AllThemes()) {
+        const double opacity = CopyIconOpacity(entry);
+        EXPECT_GE(opacity, 0.55) << entry.id;
+        // solarized-light's code text is low-contrast, so it needs 0.9; the
+        // glyph is still translucent and no theme reaches full opacity.
+        EXPECT_LE(opacity, 0.9) << entry.id << " opacity=" << opacity;
+        const theme::ThemeColor icon =
+            theme::Blend(entry.preview.codeBlockBg, entry.preview.codeBlockText, opacity);
+        EXPECT_GE(theme::ContrastRatio(icon, entry.preview.codeBlockBg), 3.0)
+            << entry.id;
     }
 }
 

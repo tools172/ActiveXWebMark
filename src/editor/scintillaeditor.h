@@ -9,6 +9,10 @@
 
 namespace awm {
 
+namespace ui {
+class FileDropTarget;
+}
+
 /// IEditorView backed by the Scintilla editing component.
 ///
 /// Markdown source is kept as UTF-8; syntax highlighting is host-driven via
@@ -36,9 +40,14 @@ public:
     void SetColorScheme(const theme::EditorScheme& scheme) override;
     void Focus() override;
     void SetChangeCallback(std::function<void()> callback) override;
+    void SetFileDropHandler(
+        std::function<void(std::vector<std::wstring>)> handler,
+        std::function<bool(const std::wstring&)> isSupported) override;
 
 private:
     void SetupStyles();
+    void InstallFileDropTarget();
+    void ReleaseFileDropTarget();
     void UpdateMargins();
     void UpdateLineNumberWidth();
     void NotifyScrollIfChanged();
@@ -49,6 +58,9 @@ private:
 
     HWND hwnd_ = nullptr;
     WNDPROC originalProc_ = nullptr;
+    ui::FileDropTarget* fileDropTarget_ = nullptr;
+    std::function<void(std::vector<std::wstring>)> fileDropHandler_;
+    std::function<bool(const std::wstring&)> fileDropFilter_;
     std::function<void()> changeCallback_;
     std::function<void(int)> scrollCallback_;
     double dpiScale_ = 1.0;

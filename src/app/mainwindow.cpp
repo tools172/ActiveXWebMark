@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <utility>
 
+#include "controls/filedroptarget.h"
 #include "darkmode.h"
 #include "dialogs.h"
 #include "doublebuffer.h"
@@ -20,6 +21,8 @@
 #include "resource.h"
 #include "scintillaeditor.h"
 #include "themeapply.h"
+#include "themedialog.h"
+#include "theme/theme_store.h"
 #include "update/updatedialog.h"
 #include "util/pathutil.h"
 #include "util/stringutil.h"
@@ -136,6 +139,22 @@ bool endsWithNoCase(const std::wstring& text, const wchar_t* suffix)
            ::_wcsicmp(text.c_str() + text.size() - length, suffix) == 0;
 }
 
+/// The outer frame must stay visible when the preview/tree surface is white,
+/// so it is the theme divider nudged toward the text color. On light themes
+/// that darkens the line; on dark themes it lightens it.
+ui::Color frameBorderColor(const ui::Palette& palette)
+{
+    constexpr int kTextWeight = 30;
+    const auto mix = [kTextWeight](BYTE divider, BYTE text) {
+        return static_cast<BYTE>((static_cast<int>(divider) * (100 - kTextWeight) +
+                                  static_cast<int>(text) * kTextWeight + 50) /
+                                 100);
+    };
+    return ui::Color{mix(palette.divider.r, palette.textPrimary.r),
+                     mix(palette.divider.g, palette.textPrimary.g),
+                     mix(palette.divider.b, palette.textPrimary.b)};
+}
+
 /// Windows 11 supports Snap Layouts when WM_NCHITTEST returns HTMAXBUTTON.
 /// RtlGetVersion is used instead of GetVersionEx so the result ignores the
 /// executable's compatibility manifest.
@@ -225,6 +244,8 @@ MainWindow::MainWindow() : registry_(DocumentFormatRegistry::createDefault())
 {
     theme_.initialize(96);
     settings_ = createSettings();
+    // Must happen before LoadViewSettings(): ui.theme may name a user theme.
+    ReloadUserThemes();
     if (settings_ != nullptr) {
         recent_.load(*settings_, "history.recentFiles");
         viewSettings_ = LoadViewSettings(*settings_);
@@ -235,6 +256,17 @@ MainWindow::MainWindow() : registry_(DocumentFormatRegistry::createDefault())
     theme_.setPalette(MakePalette(initialTheme));
     SetProcessColorMode(initialTheme.dark ? ColorMode::Dark : ColorMode::Light);
     previewAssets_ = LoadPreviewAssets(::GetModuleHandleW(nullptr));
+    diagrams_ = std::make_unique<DiagramService>();
+    if (settings_ != nullptr) {
+        diagrams_->SetPlantUmlEnabled(
+            settings_->getBool("diagrams.plantuml.enabled", true));
+        diagrams_->SetPlantUmlServer(
+            settings_->get("diagrams.plantuml.server", "https://kroki.io"));
+        diagrams_->SetPlantUmlMode(
+            settings_->get("diagrams.plantuml.mode", "auto"));
+        diagrams_->SetPlantUmlExe(
+            settings_->get("diagrams.plantuml.exe", ""));
+    }
     startMaximized_ = placement_.valid && placement_.maximized;
 }
 
@@ -371,11 +403,18 @@ DocumentViewServices MainWindow::MakeServices()
         return CreatePreviewView(PreviewEngine::Ie);
     };
     services.previewAssets = &previewAssets_;
+    services.diagrams = diagrams_.get();
     services.onOpenLink = [](const std::string& url) {
         if (!url.empty()) {
             ::ShellExecuteW(nullptr, L"open", utf8ToWide(url).c_str(), nullptr, nullptr,
                             SW_SHOWNORMAL);
         }
+    };
+    services.onDropFiles = [this](std::vector<std::wstring> files) {
+        PostDroppedFiles(std::move(files));
+    };
+    services.isSupportedFile = [this](const std::wstring& path) {
+        return registry_.canLoad(path);
     };
     return services;
 }
@@ -417,6 +456,20 @@ LRESULT MainWindow::OnCreate(UINT, WPARAM, LPARAM, BOOL&)
         const int x = work.left + (static_cast<int>(work.right - work.left) - width) / 2;
         const int y = work.top + (static_cast<int>(work.bottom - work.top) - height) / 2;
         ::SetWindowPos(m_hWnd, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    // Files dropped anywhere on the window (title bar, tab strip, navigation
+    // tree, splitters) open as tabs. OLE walks up the parent chain, so a target
+    // on the frame covers every child that has no drop target of its own. The
+    // editor and preview take over their own native targets separately.
+    fileDropTarget_ = new ui::FileDropTarget(
+        [this](std::vector<std::wstring> files) {
+            PostDroppedFiles(std::move(files));
+        },
+        [this](const std::wstring& path) { return registry_.canLoad(path); });
+    if (!ui::FileDropTarget::Register(m_hWnd, fileDropTarget_)) {
+        fileDropTarget_->Release();
+        fileDropTarget_ = nullptr;
     }
 
     RECT zero = {0, 0, 0, 0};
@@ -544,7 +597,25 @@ void MainWindow::AppendThemeGroup(HMENU parent, const std::wstring& label,
 
 void MainWindow::BuildThemeMenu()
 {
+    if (themeMenu_ == nullptr) {
+        return;
+    }
+
+    // Rebuildable: DeleteMenu on popup items destroys their submenus too.
+    while (::GetMenuItemCount(themeMenu_) > 0) {
+        ::DeleteMenu(themeMenu_, 0, MF_BYPOSITION);
+    }
     themeMenuGroups_.clear();
+
+    std::vector<int> custom;
+    const std::vector<theme::ThemeDefinition>& all = theme::AllThemes();
+    for (std::size_t i = theme::BuiltinThemeCount(); i < all.size(); ++i) {
+        custom.push_back(static_cast<int>(i));
+    }
+    if (!custom.empty()) {
+        AppendThemeGroup(themeMenu_, L"自定义主题(&M)", custom);
+        ::AppendMenuW(themeMenu_, MF_SEPARATOR, 0, nullptr);
+    }
 
     AppendThemeGroup(themeMenu_, L"浅色主题(&L)", theme::LightThemeIndices());
     AppendThemeGroup(themeMenu_, L"深色主题(&D)", theme::DarkThemeIndices());
@@ -568,6 +639,10 @@ void MainWindow::BuildThemeMenu()
         ::AppendMenuW(themeMenu_, MF_POPUP, reinterpret_cast<UINT_PTR>(byFamily),
                       L"按色系(&C)");
     }
+
+    ::AppendMenuW(themeMenu_, MF_SEPARATOR, 0, nullptr);
+    ::AppendMenuW(themeMenu_, MF_STRING, cmd::kViewThemeSettings, L"主题设置(&S)...");
+    themeMenuGeneration_ = theme::CatalogGeneration();
 }
 
 void MainWindow::UpdateThemeMenuChecks()
@@ -732,11 +807,17 @@ void MainWindow::Layout()
         return;
     }
 
+    // Children stop short of the client edge so the frame painted in OnPaint
+    // stays visible instead of being covered by the preview or the nav tree.
+    const int frame = FrameThickness();
+    const int right = std::max(frame, static_cast<int>(client.right) - frame);
+    const int bottom = std::max(frame, static_cast<int>(client.bottom) - frame);
+
     tabStrip_.ShowWindow(SW_SHOW);
     const int stripHeight = tabStrip_.preferredHeight();
-    tabStrip_.MoveWindow(0, titleHeight, static_cast<int>(client.right), stripHeight, TRUE);
+    tabStrip_.MoveWindow(frame, titleHeight, std::max(0, right - frame), stripHeight, TRUE);
 
-    RECT content{0, titleHeight + stripHeight, client.right, client.bottom};
+    RECT content{frame, titleHeight + stripHeight, right, bottom};
     for (std::size_t i = 0; i < views_.size(); ++i) {
         if (static_cast<int>(i) == activeIndex_) {
             views_[i]->ShowWindow(SW_SHOW);
@@ -776,6 +857,16 @@ int MainWindow::OpenFileInternal(const std::wstring& path, bool activate, bool r
             ActivateTab(existing);
         }
         return existing;
+    }
+
+    // Report an unsupported format explicitly; loaders otherwise produce a
+    // generic "invalid argument" error that means nothing to the user.
+    if (!registry_.canLoad(normalized)) {
+        if (reportErrors) {
+            ShowError(m_hWnd, L"不支持该文件类型：\n" + normalized +
+                                  L"\n\n只能打开 Markdown 文件（.md、.markdown、.mdown）。");
+        }
+        return -1;
     }
 
     std::error_code ec;
@@ -953,8 +1044,10 @@ void MainWindow::ActivateTab(int index)
 
     RECT client = {};
     GetClientRect(&client);
+    const int frame = FrameThickness();
     const int top = TitleBarHeight() + tabStrip_.preferredHeight();
-    view->SetBounds(RECT{0, top, client.right, client.bottom});
+    view->SetBounds(RECT{frame, top, std::max(frame, static_cast<int>(client.right) - frame),
+                         std::max(frame, static_cast<int>(client.bottom) - frame)});
     view->Activate();
 
     tabStrip_.SetActiveIndex(index);
@@ -1331,6 +1424,15 @@ void MainWindow::ApplyViewSettingsToAll()
     Layout();
 }
 
+void MainWindow::ReloadUserThemes()
+{
+    theme::ThemeStoreLoadResult loaded = theme::LoadThemeStore(themesDirectory());
+    themeLoadErrors_ = std::move(loaded.errors);
+    theme::SetUserThemes(theme::DefinitionsOf(loaded.themes));
+    // Force the next popup (or explicit rebuild) to use the new indices.
+    themeMenuGeneration_ = 0;
+}
+
 void MainWindow::ApplyTheme(const theme::ThemeDefinition& definition, bool persist)
 {
     viewSettings_.theme = definition.id;
@@ -1375,6 +1477,7 @@ void MainWindow::SaveSettings()
 
 LRESULT MainWindow::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
 {
+    ui::FileDropTarget::Unregister(m_hWnd, fileDropTarget_);
     ::KillTimer(m_hWnd, kStartupUpdateTimer);
     ::KillTimer(m_hWnd, kUpdatePollTimer);
     updates_.RequestCancel();
@@ -1408,6 +1511,29 @@ LRESULT MainWindow::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
     titleBar_.SetIcon(nullptr);
 
     ::PostQuitMessage(0);
+    return 0;
+}
+
+void MainWindow::PostDroppedFiles(std::vector<std::wstring> files)
+{
+    if (files.empty() || !::IsWindow(m_hWnd)) {
+        return;
+    }
+
+    auto* pending = new std::vector<std::wstring>(std::move(files));
+    if (::PostMessageW(m_hWnd, kOpenDroppedFilesMessage, 0,
+                       reinterpret_cast<LPARAM>(pending)) == FALSE) {
+        delete pending;
+    }
+}
+
+LRESULT MainWindow::OnOpenDroppedFiles(UINT, WPARAM, LPARAM lParam, BOOL&)
+{
+    std::unique_ptr<std::vector<std::wstring>> files(
+        reinterpret_cast<std::vector<std::wstring>*>(lParam));
+    if (files != nullptr && !files->empty()) {
+        OpenFiles(*files);
+    }
     return 0;
 }
 
@@ -1460,6 +1586,26 @@ LRESULT MainWindow::OnPaint(UINT, WPARAM, LPARAM, BOOL&)
         RECT content{client.left, static_cast<LONG>(TitleBarHeight()), client.right,
                      client.bottom};
         PaintWelcome(target, content);
+    }
+
+    const int frame = FrameThickness();
+    if (frame > 0) {
+        HBRUSH frameBrush =
+            ::CreateSolidBrush(ui::ToColorRef(frameBorderColor(palette)));
+        if (frameBrush != nullptr) {
+            const LONG right = client.right;
+            const LONG bottom = client.bottom;
+            RECT strips[] = {
+                {client.left, client.top, right, client.top + frame},
+                {client.left, bottom - frame, right, bottom},
+                {client.left, client.top, client.left + frame, bottom},
+                {right - frame, client.top, right, bottom},
+            };
+            for (const RECT& strip : strips) {
+                ::FillRect(target, &strip, frameBrush);
+            }
+            ::DeleteObject(frameBrush);
+        }
     }
 
     if (buffer.valid()) {
@@ -1555,6 +1701,16 @@ int MainWindow::ResizeBorderThickness() const
     const int frame = ::GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi);
     const int padding = ::GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
     return std::max(4, frame + padding);
+}
+
+int MainWindow::FrameThickness() const
+{
+    // A maximized window sits flush against the work area; a frame there would
+    // only draw a ring around the whole screen.
+    if (::IsZoomed(m_hWnd)) {
+        return 0;
+    }
+    return std::max(1, theme_.px(1));
 }
 
 void MainWindow::UpdateTitleBarLayout()
@@ -2099,6 +2255,11 @@ LRESULT MainWindow::OnTestTitleBarState(UINT, WPARAM wParam, LPARAM lParam, BOOL
 
 LRESULT MainWindow::OnInitMenuPopup(UINT, WPARAM, LPARAM, BOOL&)
 {
+    // The catalog can change after importing/deleting a theme. Rebuild before
+    // showing the menu so command ids still match catalog indices.
+    if (themeMenu_ != nullptr && theme::CatalogGeneration() != themeMenuGeneration_) {
+        BuildThemeMenu();
+    }
     UpdateMenuState();
     return 0;
 }
@@ -2254,6 +2415,49 @@ LRESULT MainWindow::OnViewTheme(WORD, WORD wID, HWND, BOOL&)
         return 0;
     }
     ApplyTheme(themes[static_cast<std::size_t>(index)], true);
+    return 0;
+}
+
+LRESULT MainWindow::OnViewThemeSettings(WORD, WORD, HWND, BOOL&)
+{
+    // "立即使用此主题" applies while the dialog stays open, so the live window
+    // and the dialog preview stay in step throughout an editing session.
+    const auto applyDuringDialog = [this](const std::string& themeId) {
+        if (theme::FindTheme(themeId) == nullptr) {
+            return;
+        }
+        ReloadUserThemes();
+        BuildThemeMenu();
+        ApplyTheme(theme::ResolveTheme(themeId), true);
+    };
+
+    const ThemeDialogResult result = ThemeDialog::ShowModal(
+        m_hWnd, viewSettings_.theme, themesDirectory(), &previewAssets_,
+        theme_.palette(), applyDuringDialog);
+
+    if (result.catalogChanged) {
+        ReloadUserThemes();
+        BuildThemeMenu();
+    }
+
+    bool applied = result.appliedWhileOpen;
+    if (result.applyRequested && !result.appliedWhileOpen &&
+        !result.selectedThemeId.empty() &&
+        theme::FindTheme(result.selectedThemeId) != nullptr) {
+        ApplyTheme(theme::ResolveTheme(result.selectedThemeId), true);
+        applied = true;
+    } else if (!applied && !result.savedThemeId.empty() &&
+               result.savedThemeId == viewSettings_.theme &&
+               theme::FindTheme(result.savedThemeId) != nullptr) {
+        // Saved edits to the currently active theme: refresh the existing
+        // surfaces without switching to a different theme.
+        ApplyTheme(theme::ResolveTheme(result.savedThemeId), true);
+        applied = true;
+    }
+    if (!applied && theme::FindTheme(viewSettings_.theme) == nullptr) {
+        ApplyTheme(theme::DefaultTheme(), true);
+    }
+    UpdateMenuState();
     return 0;
 }
 

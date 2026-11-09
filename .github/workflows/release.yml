@@ -37,6 +37,12 @@ jobs:
       - name: Configure (CMake + vcpkg)
         run: cmake --preset ci "-DAWM_VERSION=${{ steps.version.outputs.version }}"
 
+      # Fails the release job (no installer artefacts) if the download or
+      # checksum verification fails. -ZipPath can be used for offline builds.
+      - name: Fetch PlantUML native runtime
+        shell: pwsh
+        run: ./tools/plantuml-native/fetch.ps1
+
       - name: Build
         run: cmake --build --preset ci
 

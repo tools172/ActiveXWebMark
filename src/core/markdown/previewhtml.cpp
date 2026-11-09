@@ -1,6 +1,9 @@
 #include "markdown/previewhtml.h"
 
+#include <vector>
+
 #include "markdown/previewcss.h"
+#include "theme/theme_source.h"
 
 namespace awm {
 
@@ -136,6 +139,10 @@ std::string BuildPreviewHtml(const std::string& bodyHtml, const PreviewHtmlOptio
 
     html += "<style>";
     html += css;
+    if (!theme.extraCss.empty()) {
+        std::vector<std::string> warnings;
+        html += theme::SanitizeThemeCss(theme.extraCss, warnings);
+    }
     if (!options.extraCss.empty()) {
         html += options.extraCss;
     }

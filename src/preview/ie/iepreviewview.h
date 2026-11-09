@@ -8,12 +8,18 @@
 #include <mshtml.h>
 #include <mshtmdid.h>
 
+#include <functional>
 #include <string>
+#include <vector>
 
 #include "ipreviewview.h"
 #include "layout/scrollmap.h"
 
 namespace awm {
+
+namespace ui {
+class FileDropTarget;
+}
 
 namespace ie_detail {
 
@@ -62,12 +68,14 @@ public:
     HWND hwnd() const override { return ax_.IsWindow() ? ax_.m_hWnd : nullptr; }
     void Destroy() override;
     void SetBounds(const RECT& rc) override;
+    void SetLiveBounds(const RECT& rc) override;
     void Show(bool visible) override;
 
     void SetHtml(const std::string& html, const std::string& baseUrl) override;
     void SetZoom(int percent) override;
     void ScrollToAnchor(const std::string& anchor) override;
     void ScrollToSourceLine(double sourceLine) override;
+    void InvalidateScrollMap() override;
     bool SupportsSourceMapping() const override { return hasSourceMap_; }
     bool RunJavaScript(const std::string& script) override;
     std::string RunJavaScriptForResult(const std::string& script,
@@ -77,6 +85,9 @@ public:
     bool TranslateAccelerator(MSG* msg) override;
     bool SupportsJavaScript() const override { return true; }
     void Focus() override;
+    void SetFileDropHandler(
+        std::function<void(std::vector<std::wstring>)> handler,
+        std::function<bool(const std::wstring&)> isSupported) override;
 
     BEGIN_SINK_MAP(IePreviewView)
         SINK_ENTRY_INFO(1, DIID_DWebBrowserEvents2, DISPID_DOCUMENTCOMPLETE, OnDocumentComplete,
@@ -112,6 +123,10 @@ private:
     void FlushPending();
     void WriteHtml(const std::wstring& html);
     void InstallLinkHandler();
+    void InstallCodeCopyButtons();
+    void HandleCodeCopyNavigation(const std::wstring& buttonId);
+    void InstallFileDropTargets();
+    void RemoveFileDropTargets();
     void ApplyPendingAnchor();
     void EnsureScrollMap();
     void RebuildScrollMap();
@@ -127,6 +142,10 @@ private:
     CComPtr<IOleInPlaceActiveObject> activeObject_;
     CComPtr<IHTMLWindow2> scrollWindow_;
     PreviewCallbacks callbacks_;
+    ui::FileDropTarget* fileDropTarget_ = nullptr;
+    std::function<void(std::vector<std::wstring>)> fileDropHandler_;
+    std::function<bool(const std::wstring&)> fileDropFilter_;
+    std::vector<HWND> fileDropWindows_;
 
     std::wstring pendingHtml_;
     std::wstring lastHtml_;

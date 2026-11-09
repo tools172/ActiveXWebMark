@@ -20,6 +20,7 @@ extern CAppModule _Module;
 #include "highlight/pmhhighlighter.h"
 #include "history/recent_files.h"
 #include "markdown/cmarkengine.h"
+#include "diagramservice.h"
 #include "previewassets.h"
 #include "settings/isettings.h"
 #include "theme.h"
@@ -30,6 +31,10 @@ extern CAppModule _Module;
 namespace awm {
 
 class UpdateDialog;
+
+namespace ui {
+class FileDropTarget;
+}
 
 /// Application main window: tab strip, active document view, menus and
 /// persistence. Model state (documents, recent files) lives in app/core classes.
@@ -42,6 +47,9 @@ public:
     /// Diagnostic hook used by tests/manual/titlebar-smoke.ps1. Every query
     /// returns an integer so it works across processes without marshaling.
     static constexpr UINT kTestTitleBarMessage = WM_APP + 0x53;
+    /// Posted by the drop target with a heap-allocated vector<wstring> so files
+    /// are opened after the OLE drop operation has finished.
+    static constexpr UINT kOpenDroppedFilesMessage = WM_APP + 0x56;
 
     MainWindow();
     ~MainWindow() override;
@@ -76,6 +84,7 @@ public:
         MESSAGE_HANDLER(WM_LBUTTONUP, OnLButtonUp)
         MESSAGE_HANDLER(WM_CAPTURECHANGED, OnCaptureChanged)
         MESSAGE_HANDLER(kTestTitleBarMessage, OnTestTitleBarState)
+        MESSAGE_HANDLER(kOpenDroppedFilesMessage, OnOpenDroppedFiles)
         COMMAND_ID_HANDLER(cmd::kFileOpen, OnFileOpen)
         COMMAND_ID_HANDLER(cmd::kFileSave, OnFileSave)
         COMMAND_ID_HANDLER(cmd::kFileSaveAs, OnFileSaveAs)
@@ -90,6 +99,7 @@ public:
         COMMAND_ID_HANDLER(cmd::kViewScrollSync, OnViewScrollSync)
         COMMAND_RANGE_HANDLER(cmd::kViewThemeBase,
                               cmd::kViewThemeBase + cmd::kViewThemeMax - 1, OnViewTheme)
+        COMMAND_ID_HANDLER(cmd::kViewThemeSettings, OnViewThemeSettings)
         COMMAND_ID_HANDLER(cmd::kEditFind, OnEditFind)
         COMMAND_ID_HANDLER(cmd::kEditFindNext, OnEditFindNext)
         COMMAND_ID_HANDLER(cmd::kEditFindPrevious, OnEditFindPrevious)
@@ -126,6 +136,9 @@ private:
     LRESULT OnLButtonUp(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnCaptureChanged(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnTestTitleBarState(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnOpenDroppedFiles(UINT, WPARAM, LPARAM, BOOL&);
+    /// Queues dropped paths for OpenFiles() after the OLE drop returns.
+    void PostDroppedFiles(std::vector<std::wstring> files);
 
     void ShowTitleMenu(int index);
     void ShowSystemMenu();
@@ -137,6 +150,8 @@ private:
     void InvalidateTitleBar();
     int TitleBarHeight() const;
     int ResizeBorderThickness() const;
+    /// Width of the client-drawn frame around the window (0 when maximized).
+    int FrameThickness() const;
 
     LRESULT OnFileOpen(WORD, WORD, HWND, BOOL&);
     LRESULT OnFileSave(WORD, WORD, HWND, BOOL&);
@@ -151,6 +166,7 @@ private:
     LRESULT OnViewToggleSplit(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewScrollSync(WORD, WORD, HWND, BOOL&);
     LRESULT OnViewTheme(WORD, WORD, HWND, BOOL&);
+    LRESULT OnViewThemeSettings(WORD, WORD, HWND, BOOL&);
     LRESULT OnEditFind(WORD, WORD, HWND, BOOL&);
     LRESULT OnEditFindNext(WORD, WORD, HWND, BOOL&);
     LRESULT OnEditFindPrevious(WORD, WORD, HWND, BOOL&);
@@ -207,6 +223,9 @@ private:
 
     void ApplyViewSettingsToAll();
     void ApplyTheme(const theme::ThemeDefinition& definition, bool persist);
+    /// Re-reads %LOCALAPPDATA%\ActiveXWebMark\themes and replaces the catalog's
+    /// user-theme tail. Call before LoadViewSettings so ui.theme resolves.
+    void ReloadUserThemes();
     void UpdateTabStrip();
     void UpdateWindowTitle();
     void UpdateMenuState();
@@ -228,6 +247,7 @@ private:
 
     // Declared before the views so it outlives their DocumentViewServices.
     PreviewAssets previewAssets_;
+    std::unique_ptr<DiagramService> diagrams_;
 
     ui::Theme theme_;
     ui::TitleBar titleBar_;
@@ -240,7 +260,11 @@ private:
     bool titleBarActive_ = true;
     std::vector<std::unique_ptr<DocumentView>> views_;
     int activeIndex_ = -1;
+    std::vector<std::string> themeLoadErrors_;
+    unsigned themeMenuGeneration_ = 0;
     ViewSettings viewSettings_;
+
+    ui::FileDropTarget* fileDropTarget_ = nullptr;
 
     HMENU mainMenu_ = nullptr;
     HMENU fileMenu_ = nullptr;

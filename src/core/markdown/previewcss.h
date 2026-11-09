@@ -13,4 +13,9 @@ namespace awm {
 /// IE11's MSHTML does not support them.
 std::string BuildPreviewCss(const theme::ThemeDefinition& theme);
 
+/// Opacity for the floating code-block copy icon. Returns the most translucent
+/// value (no lower than 0.55) whose blended color still reaches 3:1 contrast
+/// against the theme's code-block background, so no border is needed.
+double CopyIconOpacity(const theme::ThemeDefinition& theme);
+
 } // namespace awm
