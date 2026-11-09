@@ -243,6 +243,10 @@ ThemeDialog::~ThemeDialog()
         ::DeleteObject(surfaceBrush_);
         surfaceBrush_ = nullptr;
     }
+    if (glyphFont_ != nullptr) {
+        ::DeleteObject(glyphFont_);
+        glyphFont_ = nullptr;
+    }
 }
 
 ThemeDialogResult ThemeDialog::ShowModal(HWND owner, const std::string& currentThemeId,
@@ -324,6 +328,11 @@ void ThemeDialog::CreateChildren()
     RECT zero = {0, 0, 0, 0};
     backgroundBrush_ = ::CreateSolidBrush(ui::ToColorRef(palette_.windowBg));
     surfaceBrush_ = ::CreateSolidBrush(ui::ToColorRef(palette_.surface));
+    glyphFont_ = ::CreateFontW(-theme_.px(15), 0, 0, 0, FW_NORMAL, FALSE, FALSE,
+                               FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                               CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                               DEFAULT_PITCH | FF_DONTCARE,
+                               L"Segoe MDL2 Assets");
 
     searchEdit_.Create(m_hWnd, zero, L"",
                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | WS_BORDER, 0,
@@ -371,6 +380,20 @@ void ThemeDialog::CreateChildren()
     cancelButton_.Create(m_hWnd, zero, L"关闭(&C)",
                          WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0,
                          IDCANCEL);
+
+    // The preview below the settings page switches between the rendered
+    // Markdown document and the window-chrome mock. It uses the same tab
+    // control style and width as the settings pages above; the expand/collapse
+    // icon floats over the empty right end of that tab strip.
+    previewTabs_.Create(m_hWnd, zero, nullptr,
+                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS, 0,
+                        kPreviewTabsId);
+    previewTabs_.InsertItem(0, L"Markdown 预览");
+    previewTabs_.InsertItem(1, L"窗口外观预览");
+    previewTabs_.SetCurSel(0);
+    previewExpandButton_.Create(m_hWnd, zero, L"展开预览",
+                                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                                0, kPreviewExpandId);
 
     tabs_.Create(m_hWnd, zero, nullptr, WS_CHILD | WS_VISIBLE | WS_TABSTOP, 0, kTabsId);
     tabs_.InsertItem(0, L"基本");
@@ -506,6 +529,8 @@ void ThemeDialog::CreateChildren()
           static_cast<CWindow*>(&deleteButton_), static_cast<CWindow*>(&exportButton_),
           static_cast<CWindow*>(&saveButton_), static_cast<CWindow*>(&applyButton_),
           static_cast<CWindow*>(&cancelButton_), static_cast<CWindow*>(&tabs_),
+          static_cast<CWindow*>(&previewTabs_),
+          static_cast<CWindow*>(&previewExpandButton_),
           static_cast<CWindow*>(&colorList_), static_cast<CWindow*>(&derivedList_),
           static_cast<CWindow*>(&editColorButton_), static_cast<CWindow*>(&extraCssLabel_)}) {
         setFont(*control, theme_.uiFont());
@@ -772,6 +797,16 @@ void ThemeDialog::CreateChildren()
         ::SendMessageW(tooltip_.m_hWnd, TTM_SETMAXTIPWIDTH, 0, theme_.px(520));
         ::SetWindowSubclass(derivedList_.m_hWnd, DerivedListSubclassProc, 1,
                             reinterpret_cast<DWORD_PTR>(this));
+
+        // The floating expand/collapse icon gets a hover tooltip with the
+        // action name; the icon itself has no visible label.
+        expandTooltipText_ = L"展开预览";
+        CToolInfo expandInfo(TTF_IDISHWND, previewExpandButton_.m_hWnd);
+        expandInfo.lpszText = const_cast<wchar_t*>(expandTooltipText_.c_str());
+        tooltip_.AddTool(expandInfo);
+        ::SetWindowSubclass(previewExpandButton_.m_hWnd,
+                            ExpandButtonSubclassProc, 1,
+                            reinterpret_cast<DWORD_PTR>(this));
     }
 
     preview_ = CreatePreviewView(PreviewEngine::Ie);
@@ -807,6 +842,7 @@ void ThemeDialog::ApplyThemeToDialog()
     ApplyColorModeToWindow(themeList_.m_hWnd, mode);
     ApplyColorModeToWindow(colorList_.m_hWnd, mode);
     ApplyColorModeToWindow(tabs_.m_hWnd, mode);
+    ApplyColorModeToWindow(previewTabs_.m_hWnd, mode);
     ui::SetThemedScrollbar(themeList_.m_hWnd, MakeScrollbarColors(palette_));
     ui::SetThemedScrollbar(colorList_.m_hWnd, MakeScrollbarColors(palette_));
     ui::SetThemedScrollbar(extraCssEdit_.m_hWnd, MakeScrollbarColors(palette_));
@@ -1455,8 +1491,8 @@ int ThemeDialog::MinUpperHeight() const
     switch (tabs_.GetCurSel()) {
     case 2: // 正文排版: explanation, labels, fields and extra CSS
         return theme_.px(320);
-    case 3: // 窗口外观: mock window and color list
-        return theme_.px(230);
+    case 3: // 窗口外观: derived color table only (the mock moved below)
+        return theme_.px(200);
     default:
         return theme_.px(160);
     }
@@ -1486,7 +1522,8 @@ int ThemeDialog::ClampSplitTop(int y, int* contentTopOut, int* spanOut) const
     }
 
     const int minUpper = MinUpperHeight();
-    const int minLower = gap + theme_.px(180);
+    // The lower pane now holds the preview mode buttons above the preview body.
+    const int minLower = gap + theme_.px(26) + theme_.px(6) + theme_.px(180);
     const int maxUpper = std::max(minUpper, span - minLower);
     return std::clamp(y - splitterHeight / 2, contentTop + minUpper,
                       contentTop + maxUpper);
@@ -1500,7 +1537,7 @@ void ThemeDialog::PreviewSplitDrag(int y)
     if (top < 0 || span <= 0) {
         return;
     }
-    upperRatio_ = static_cast<double>(top - contentTop) / span;
+    upperHeightPx_ = top - contentTop;
     LayoutSplitter();
 }
 
@@ -1512,10 +1549,73 @@ void ThemeDialog::CommitSplitDrag(int y)
     if (top < 0 || span <= 0) {
         return;
     }
-    upperRatio_ = static_cast<double>(top - contentTop) / span;
+    upperHeightPx_ = top - contentTop;
     // Full layout only once, on release; the live path above moves only the
     // controls affected by the splitter.
     Layout();
+}
+
+void ThemeDialog::PlacePreviewArea(int left, int width, int top, int bottom,
+                                   bool live)
+{
+    const int headerHeight = theme_.px(26);
+    const int headerGap = theme_.px(6);
+    const int iconSize = theme_.px(22);
+    const int iconMargin = theme_.px(6);
+
+    const int previewBodyTop = top + headerHeight + headerGap;
+    previewRect_ = {left, previewBodyTop, left + width,
+                    std::max(previewBodyTop, bottom)};
+
+    const UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
+    previewTabs_.SetWindowPos(nullptr, left, top, width, headerHeight, flags);
+    // Float the icon over the empty right end of the tab strip. No
+    // SWP_NOZORDER so it stays above the tab control (the tab control has
+    // WS_CLIPSIBLINGS and clips itself underneath).
+    previewExpandButton_.SetWindowPos(
+        nullptr, left + width - iconSize - iconMargin,
+        top + (headerHeight - iconSize) / 2, iconSize, iconSize,
+        SWP_NOACTIVATE);
+
+    if (preview_) {
+        if (live) {
+            preview_->SetLiveBounds(previewRect_);
+        } else {
+            preview_->SetBounds(previewRect_);
+        }
+        preview_->Show(previewChrome_ ? FALSE : TRUE);
+    }
+    chromeMockRect_ = previewChrome_ ? previewRect_ : RECT{};
+}
+
+void ThemeDialog::UpdateExpandButtonText()
+{
+    expandTooltipText_ = previewExpanded_ ? L"折叠预览" : L"展开预览";
+    previewExpandButton_.SetWindowTextW(expandTooltipText_.c_str());
+    if (tooltip_.IsWindow() && previewExpandButton_.IsWindow()) {
+        TOOLINFO tool = {};
+        tool.cbSize = sizeof(tool);
+        tool.uFlags = TTF_IDISHWND;
+        tool.hwnd = m_hWnd;
+        tool.uId = reinterpret_cast<UINT_PTR>(previewExpandButton_.m_hWnd);
+        tool.lpszText = const_cast<wchar_t*>(expandTooltipText_.c_str());
+        ::SendMessageW(tooltip_.m_hWnd, TTM_UPDATETIPTEXT, 0,
+                       reinterpret_cast<LPARAM>(&tool));
+    }
+    if (previewExpandButton_.IsWindow()) {
+        ::InvalidateRect(previewExpandButton_.m_hWnd, nullptr, TRUE);
+    }
+}
+
+void ThemeDialog::UpdatePreviewMode()
+{
+    if (preview_) {
+        preview_->Show(previewChrome_ ? FALSE : TRUE);
+    }
+    chromeMockRect_ = previewChrome_ ? previewRect_ : RECT{};
+    RECT dirty = previewRect_;
+    ::InflateRect(&dirty, theme_.px(2), theme_.px(2));
+    ::InvalidateRect(m_hWnd, &dirty, TRUE);
 }
 
 void ThemeDialog::LayoutSplitter()
@@ -1539,13 +1639,11 @@ void ThemeDialog::LayoutSplitter()
     const int contentBottom = statusY - gap;
     const int span = contentBottom - pageTop - splitterHeight;
     const int minUpper = MinUpperHeight();
-    const int minLower = gap + theme_.px(180);
+    const int minLower = gap + theme_.px(26) + theme_.px(6) + theme_.px(180);
     const int maxUpper = std::max(minUpper, span - minLower);
-    const int upperHeight =
-        std::clamp(static_cast<int>(span * upperRatio_), minUpper, maxUpper);
-    if (span > 0) {
-        upperRatio_ = static_cast<double>(upperHeight) / span;
-    }
+    const int desired =
+        upperHeightPx_ > 0 ? upperHeightPx_ : static_cast<int>(span * 0.58);
+    const int upperHeight = std::clamp(desired, minUpper, maxUpper);
     const int splitterTop = pageTop + upperHeight;
     const int pageBottom = splitterTop - gap;
     const int previewTop = splitterTop + splitterHeight + gap;
@@ -1553,13 +1651,13 @@ void ThemeDialog::LayoutSplitter()
     pageRect_ = {rightX, pageTop, rightX + rightWidth, pageBottom};
     splitterRect_ = {rightX, splitterTop, rightX + rightWidth,
                      splitterTop + splitterHeight};
-    previewRect_ = {rightX, previewTop, rightX + rightWidth, contentBottom};
-    chromeMockRect_ = {};
 
     const UINT flags = SWP_NOZORDER | SWP_NOCOPYBITS | SWP_NOACTIVATE;
     ::SetWindowPos(splitter_.m_hWnd, nullptr, splitterRect_.left,
                    splitterRect_.top, splitterRect_.right - splitterRect_.left,
                    splitterRect_.bottom - splitterRect_.top, flags);
+
+    PlacePreviewArea(rightX, rightWidth, previewTop, contentBottom, true);
 
     const int pageX = pageRect_.left + theme_.px(8);
     const int pageWidth = pageRect_.right - pageRect_.left - theme_.px(16);
@@ -1590,20 +1688,13 @@ void ThemeDialog::LayoutSplitter()
                                 pageBottom - typeY - theme_.px(28)),
                        flags);
     } else if (page == 3) {
-        const int mockHeight = theme_.px(112);
-        chromeMockRect_ = {pageX, pageListTop, pageX + pageWidth,
-                           pageListTop + mockHeight};
-        const int derivedTop = chromeMockRect_.bottom + gap;
-        ::SetWindowPos(derivedList_.m_hWnd, nullptr, pageX, derivedTop, pageWidth,
-                       std::max(theme_.px(60), hintY - gap - derivedTop), flags);
+        ::SetWindowPos(derivedList_.m_hWnd, nullptr, pageX, pageListTop, pageWidth,
+                       std::max(theme_.px(60), hintY - gap - pageListTop), flags);
     }
 
     ::SetWindowPos(hintLabel_.m_hWnd, nullptr, pageX, hintY, pageWidth,
                    theme_.px(20), flags);
 
-    if (preview_) {
-        preview_->SetLiveBounds(previewRect_);
-    }
     // Repaint only the right panel. Invalidating the whole dialog also touches
     // the area behind the left ListView, which can make its header flicker.
     RECT dirty{pageRect_.left - gap, pageRect_.top - gap, pageRect_.right + gap,
@@ -1677,12 +1768,18 @@ void ThemeDialog::Layout()
     const int contentBottom = statusY - gap;
     const int span = contentBottom - pageTop - splitterHeight;
     const int minUpper = MinUpperHeight();
-    const int minLower = gap + theme_.px(180);
+    // The lower pane now holds the preview mode buttons above the preview body.
+    const int minLower = gap + theme_.px(26) + theme_.px(6) + theme_.px(180);
     const int maxUpper = std::max(minUpper, span - minLower);
-    const int upperHeight =
-        std::clamp(static_cast<int>(span * upperRatio_), minUpper, maxUpper);
-    if (span > 0) {
-        upperRatio_ = static_cast<double>(upperHeight) / span;
+    const int desired =
+        upperHeightPx_ > 0 ? upperHeightPx_ : static_cast<int>(span * 0.58);
+    const int upperHeight = std::clamp(desired, minUpper, maxUpper);
+    if (upperHeightPx_ <= 0 || upperHeight > upperHeightPx_) {
+        // Remember the initial split, and grow it when the current settings
+        // page needs more room. Afterwards the settings pane keeps its height
+        // when the window is resized, so the added or removed height goes to
+        // the preview area below.
+        upperHeightPx_ = upperHeight;
     }
     const int splitterTop = pageTop + upperHeight;
     const int pageBottom = splitterTop - gap;
@@ -1691,16 +1788,16 @@ void ThemeDialog::Layout()
     pageRect_ = {rightX, pageTop, rightX + rightWidth, pageBottom};
     splitterRect_ = {rightX, splitterTop, rightX + rightWidth,
                      splitterTop + splitterHeight};
-    previewRect_ = {rightX, previewTop, rightX + rightWidth, contentBottom};
-    chromeMockRect_ = {};
 
+    splitter_.ShowWindow(previewExpanded_ ? SW_HIDE : SW_SHOW);
     splitter_.SetWindowPos(nullptr, splitterRect_.left, splitterRect_.top,
                            splitterRect_.right - splitterRect_.left,
                            splitterRect_.bottom - splitterRect_.top, SWP_NOZORDER);
 
-    if (preview_) {
-        preview_->SetBounds(previewRect_);
-    }
+    // Expanded mode hides the settings page and lets the preview start at the
+    // top of the right column, filling its full height.
+    const int previewAreaTop = previewExpanded_ ? margin : previewTop;
+    PlacePreviewArea(rightX, rightWidth, previewAreaTop, contentBottom, false);
 
     const int pageX = pageRect_.left + theme_.px(8);
     const int pageWidth = pageRect_.right - pageRect_.left - theme_.px(16);
@@ -1733,15 +1830,8 @@ void ThemeDialog::Layout()
     editColorButton_.SetWindowPos(nullptr, pageX, editColorY, theme_.px(140),
                                   theme_.px(24), SWP_NOZORDER);
 
-    int derivedTop = pageListTop;
-    if (page == 3) {
-        const int mockHeight = theme_.px(112);
-        chromeMockRect_ = {pageX, pageListTop, pageX + pageWidth,
-                           pageListTop + mockHeight};
-        derivedTop = chromeMockRect_.bottom + gap;
-    }
-    derivedList_.SetWindowPos(nullptr, pageX, derivedTop, pageWidth,
-                              std::max(theme_.px(60), hintY - gap - derivedTop),
+    derivedList_.SetWindowPos(nullptr, pageX, pageListTop, pageWidth,
+                              std::max(theme_.px(60), hintY - gap - pageListTop),
                               SWP_NOZORDER);
 
     const int explainH = theme_.px(18);
@@ -1806,10 +1896,12 @@ void ThemeDialog::Layout()
     hintLabel_.SetWindowPos(nullptr, pageX, hintY, pageWidth, theme_.px(20),
                             SWP_NOZORDER);
 
-    const BOOL basic = page == 0 ? TRUE : FALSE;
-    const BOOL colors = page == 1 ? TRUE : FALSE;
-    const BOOL typography = page == 2 ? TRUE : FALSE;
-    const BOOL derivedPage = page == 3 ? TRUE : FALSE;
+    tabs_.ShowWindow(previewExpanded_ ? SW_HIDE : SW_SHOW);
+    hintLabel_.ShowWindow(previewExpanded_ ? SW_HIDE : SW_SHOW);
+    const BOOL basic = (!previewExpanded_ && page == 0) ? TRUE : FALSE;
+    const BOOL colors = (!previewExpanded_ && page == 1) ? TRUE : FALSE;
+    const BOOL typography = (!previewExpanded_ && page == 2) ? TRUE : FALSE;
+    const BOOL derivedPage = (!previewExpanded_ && page == 3) ? TRUE : FALSE;
     for (CWindow* control : {static_cast<CWindow*>(&nameEdit_),
                              static_cast<CWindow*>(&authorEdit_),
                              static_cast<CWindow*>(&darkCheck_),
@@ -1941,6 +2033,7 @@ void ThemeDialog::PaintChromeMock(HDC dc, const RECT& area)
     }
     const theme::ChromeColors& chrome = previewDefinition_.chrome;
     const theme::PreviewColors& preview = previewDefinition_.preview;
+    const theme::EditorScheme& editor = previewDefinition_.editor;
 
     const auto fill = [dc](const RECT& rc, const theme::ThemeColor& color) {
         HBRUSH brush = ::CreateSolidBrush(RGB(color.r, color.g, color.b));
@@ -1956,129 +2049,256 @@ void ThemeDialog::PaintChromeMock(HDC dc, const RECT& area)
             ::DeleteObject(brush);
         }
     };
+    const auto drawText = [dc](RECT rc, const wchar_t* value,
+                               const theme::ThemeColor& color, UINT flags) {
+        ::SetTextColor(dc, ToColorRef(color));
+        ::DrawTextW(dc, value, -1, &rc, flags);
+    };
 
-    FontSelection fonts(dc, theme_.smallFont());
-    const int labelH = theme_.px(16);
-    RECT label{area.left, area.top, area.right, area.top + labelH};
-    ::SetBkMode(dc, OPAQUE);
-    ::SetBkColor(dc, ui::ToColorRef(palette_.windowBg));
-    ::SetTextColor(dc, ui::ToColorRef(palette_.textSecondary));
-    ::DrawTextW(
-        dc,
-        L"窗口外观示意（标题栏、标签、侧栏、滚动条颜色由 Markdown 配色派生；只读）",
-        -1, &label, DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-    fonts.use(theme_.uiFont());
+    ::SetBkMode(dc, TRANSPARENT);
+    fill(area, chrome.windowBg);
 
-    RECT body{area.left, area.top + labelH, area.right, area.bottom};
-    if (body.bottom <= body.top) {
-        return;
-    }
-    fill(body, chrome.windowBg);
-
-    const int titleH = theme_.px(20);
-    const int tabsH = theme_.px(18);
-    RECT title{body.left, body.top, body.right, body.top + titleH};
+    const int titleHeight = theme_.px(36);
+    RECT title{area.left, area.top, area.right, area.top + titleHeight};
     fill(title, chrome.titleBarBg);
-    RECT titleText{title.left + theme_.px(8), title.top,
-                   title.right - theme_.px(86), title.bottom};
-    ::SetTextColor(dc, ToColorRef(chrome.textPrimary));
-    ::SetBkColor(dc, ToColorRef(chrome.titleBarBg));
-    ::DrawTextW(dc, L"ActiveXWebMark — 主题预览", -1, &titleText,
-                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-    RECT buttons{title.right - theme_.px(80), title.top, title.right - theme_.px(8),
-                 title.bottom};
-    ::SetTextColor(dc, ToColorRef(chrome.textSecondary));
-    ::SetBkColor(dc, ToColorRef(chrome.titleBarBg));
-    ::DrawTextW(dc, L"—   □   ×", -1, &buttons,
-                DT_SINGLELINE | DT_VCENTER | DT_RIGHT);
 
-    RECT tabRow{body.left, title.bottom, body.right, title.bottom + tabsH};
+    FontSelection fonts(dc, theme_.uiFont());
+    RECT titleText{title.left + theme_.px(12), title.top,
+                   title.right - theme_.px(120), title.bottom};
+    drawText(titleText, L"ActiveXWebMark — 窗口外观预览", chrome.textPrimary,
+             DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+    RECT windowButtons{title.right - theme_.px(112), title.top,
+                       title.right - theme_.px(12), title.bottom};
+    drawText(windowButtons, L"—      □      ×", chrome.textSecondary,
+             DT_SINGLELINE | DT_VCENTER | DT_RIGHT);
+
+    fonts.use(theme_.smallFont());
+    const int tabHeight = theme_.px(32);
+    RECT tabRow{area.left, title.bottom, area.right, title.bottom + tabHeight};
     fill(tabRow, chrome.surface);
-    const int tabW =
-        std::max(theme_.px(70), static_cast<int>(body.right - body.left) / 4);
-    RECT activeTab{tabRow.left + theme_.px(8), tabRow.top,
-                   tabRow.left + theme_.px(8) + tabW, tabRow.bottom};
+    const int tabWidth =
+        std::clamp(static_cast<int>(tabRow.right - tabRow.left) / 5,
+                   theme_.px(120), theme_.px(220));
+    RECT activeTab{tabRow.left + theme_.px(10), tabRow.top,
+                   tabRow.left + theme_.px(10) + tabWidth, tabRow.bottom};
     fill(activeTab, chrome.surface);
-    RECT activeLine{activeTab.left, activeTab.bottom - theme_.px(2), activeTab.right,
-                    activeTab.bottom};
+    drawText(RECT{activeTab.left + theme_.px(10), activeTab.top,
+                  activeTab.right - theme_.px(22), activeTab.bottom},
+             L"当前文档.md", chrome.textPrimary,
+             DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+    drawText(RECT{activeTab.right - theme_.px(20), activeTab.top,
+                  activeTab.right - theme_.px(6), activeTab.bottom},
+             L"×", chrome.textSecondary, DT_SINGLELINE | DT_VCENTER | DT_RIGHT);
     RECT inactiveTab{activeTab.right + theme_.px(2), tabRow.top,
-                     activeTab.right + theme_.px(2) + tabW, tabRow.bottom};
+                     activeTab.right + theme_.px(2) + tabWidth, tabRow.bottom};
     fill(inactiveTab, chrome.tabHover);
-    ::SetTextColor(dc, ToColorRef(chrome.textPrimary));
-    ::SetBkColor(dc, ToColorRef(chrome.surface));
-    RECT tabText1{activeTab.left + theme_.px(10), activeTab.top, activeTab.right,
-                  activeTab.bottom};
-    ::DrawTextW(dc, L"当前文档.md", -1, &tabText1,
-                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-    ::SetTextColor(dc, ToColorRef(chrome.textSecondary));
-    ::SetBkColor(dc, ToColorRef(chrome.tabHover));
-    RECT tabText2{inactiveTab.left + theme_.px(10), inactiveTab.top, inactiveTab.right,
-                  inactiveTab.bottom};
-    ::DrawTextW(dc, L"其他文档.md", -1, &tabText2,
-                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-    // Draw the active underline after the opaque text backgrounds so it is
-    // not covered by the tab text background fill.
-    fill(activeLine, chrome.accent);
+    drawText(RECT{inactiveTab.left + theme_.px(10), inactiveTab.top,
+                  inactiveTab.right - theme_.px(8), inactiveTab.bottom},
+             L"其他文档.md", chrome.textSecondary,
+             DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+    RECT activeUnderline{activeTab.left, activeTab.bottom - theme_.px(2),
+                         activeTab.right, activeTab.bottom};
+    fill(activeUnderline, chrome.accent);
 
-    RECT content{body.left, tabRow.bottom, body.right, body.bottom};
-    if (content.bottom <= content.top) {
-        return;
+    const int statusHeight = theme_.px(24);
+    RECT statusBar{area.left, area.bottom - statusHeight, area.right, area.bottom};
+    fill(statusBar, chrome.surface);
+    RECT statusDivider{statusBar.left, statusBar.top, statusBar.right,
+                       statusBar.top + 1};
+    fill(statusDivider, chrome.divider);
+    drawText(RECT{statusBar.left + theme_.px(12), statusBar.top,
+                  statusBar.right - theme_.px(140), statusBar.bottom},
+             L"行 12，列 8    ·    Markdown — 已保存", chrome.textSecondary,
+             DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+    RECT dirtyDot{statusBar.right - theme_.px(120), statusBar.top + theme_.px(8),
+                  statusBar.right - theme_.px(112), statusBar.bottom - theme_.px(8)};
+    fill(dirtyDot, chrome.dirtyDot);
+    drawText(RECT{dirtyDot.right + theme_.px(6), statusBar.top,
+                  statusBar.right - theme_.px(10), statusBar.bottom},
+             L"主题已应用", chrome.textSecondary,
+             DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+
+    RECT content{area.left, tabRow.bottom, area.right, statusBar.top};
+    if (content.bottom > content.top) {
+        const int sidebarWidth =
+            std::clamp(static_cast<int>(content.right - content.left) / 5,
+                       theme_.px(120), theme_.px(220));
+        RECT sidebar{content.left, content.top, content.left + sidebarWidth,
+                     content.bottom};
+        fill(sidebar, chrome.navBg);
+        RECT selectedNav{sidebar.left + theme_.px(8), sidebar.top + theme_.px(8),
+                         sidebar.right - theme_.px(8), sidebar.top + theme_.px(34)};
+        fill(selectedNav, chrome.accentSoft);
+        drawText(RECT{selectedNav.left + theme_.px(10), selectedNav.top,
+                      selectedNav.right, selectedNav.bottom},
+                 L"目录", chrome.textPrimary,
+                 DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+        static const wchar_t* kNavItems[] = {L"概述", L"二级标题", L"三级标题",
+                                             L"代码示例", L"结尾"};
+        int navY = selectedNav.bottom + theme_.px(4);
+        for (const wchar_t* item : kNavItems) {
+            if (navY + theme_.px(22) > content.bottom) {
+                break;
+            }
+            drawText(RECT{sidebar.left + theme_.px(18), navY,
+                          sidebar.right - theme_.px(8),
+                          navY + theme_.px(22)},
+                     item, chrome.textSecondary,
+                     DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+            navY += theme_.px(24);
+        }
+
+        RECT document{sidebar.right, content.top, content.right, content.bottom};
+        const int editorWidth =
+            std::max(theme_.px(180),
+                     static_cast<int>((document.right - document.left) * 0.56));
+        RECT editorPane{document.left, document.top,
+                        std::min(document.right,
+                                 static_cast<LONG>(document.left + editorWidth)),
+                        document.bottom};
+        RECT previewPane{editorPane.right, document.top, document.right,
+                         document.bottom};
+
+        fill(editorPane, chrome.surface);
+        const int gutterWidth = theme_.px(38);
+        RECT gutter{editorPane.left, editorPane.top,
+                    std::min(editorPane.right, editorPane.left + gutterWidth),
+                    editorPane.bottom};
+        fill(gutter, chrome.gutterBg);
+
+        fonts.use(theme_.monoFont());
+        struct MockEditorLine {
+            const wchar_t* text;
+            theme::ThemeColor color;
+        };
+        const MockEditorLine kEditorLines[] = {
+            {L"# 项目标题", editor.heading},
+            {L"", editor.text},
+            {L"正文示例：**粗体**、*斜体*、`行内代码`", editor.text},
+            {L"[链接文字](https://example.com)", editor.link},
+            {L"> 引用文字示例", editor.blockQuote},
+            {L"- 列表项一", editor.text},
+            {L"- 列表项二", editor.text},
+            {L"1. 有序列表", editor.text},
+            {L"---", editor.hrule},
+            {L"<!-- HTML 注释 -->", editor.html},
+            {L"![图片](image.png)", editor.image},
+            {L"", editor.text},
+            {L"## 二级标题", editor.heading},
+            {L"段落中可以混排 **粗体** 与 *斜体*。", editor.text},
+            {L"- [x] 已完成事项", editor.text},
+            {L"- [ ] 待办事项", editor.text},
+            {L"| 表头 | 说明 |", editor.text},
+            {L"| --- | --- |", editor.text},
+            {L"| 单元格 | 内容 |", editor.text},
+            {L"", editor.text},
+            {L"```cpp", editor.codeBlock},
+            {L"int main() { return 0; }", editor.codeBlock},
+            {L"```", editor.codeBlock},
+            {L"> 引用第二段", editor.blockQuote},
+            {L"---", editor.hrule},
+            {L"*斜体文本*", editor.emphasis},
+            {L"结束。", editor.text},
+        };
+        const int lineCount =
+            static_cast<int>(sizeof(kEditorLines) / sizeof(kEditorLines[0]));
+        const int availableHeight =
+            static_cast<int>(editorPane.bottom - editorPane.top);
+        const int lineHeight =
+            std::clamp(availableHeight / lineCount, theme_.px(18), theme_.px(30));
+        int lineY = editorPane.top + theme_.px(6);
+        for (int i = 0;
+             i < lineCount && lineY + lineHeight <= editorPane.bottom; ++i) {
+            if (i == 2) {
+                RECT currentLine{editorPane.left, lineY, editorPane.right,
+                                 lineY + lineHeight};
+                fill(currentLine, chrome.currentLine);
+            }
+            const std::wstring number = std::to_wstring(i + 1);
+            drawText(RECT{gutter.left, lineY, gutter.right - theme_.px(8),
+                          lineY + lineHeight},
+                     number.c_str(), editor.gutterText,
+                     DT_SINGLELINE | DT_VCENTER | DT_RIGHT);
+            const MockEditorLine& line = kEditorLines[i];
+            drawText(RECT{gutter.right + theme_.px(10), lineY,
+                          editorPane.right - theme_.px(8), lineY + lineHeight},
+                     line.text, line.color,
+                     DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+            lineY += lineHeight;
+        }
+
+        if (previewPane.right > previewPane.left + theme_.px(40)) {
+            fill(previewPane, preview.pageBg);
+            const int scrollWidth = theme_.px(10);
+            RECT track{previewPane.right - scrollWidth, previewPane.top,
+                       previewPane.right, previewPane.bottom};
+            fill(track, preview.pageBg);
+            const int thumbHeight =
+                std::max(theme_.px(24),
+                         static_cast<int>((track.bottom - track.top) * 0.35));
+            RECT thumb{track.left + 1, track.top + theme_.px(10), track.right - 1,
+                       track.top + theme_.px(10) + thumbHeight};
+            fill(thumb, theme::Blend(preview.pageBg, preview.pageText, 0.28));
+
+            fonts.use(theme_.uiFont());
+            const int textLeft = previewPane.left + theme_.px(16);
+            const int textRight = track.left - theme_.px(12);
+            int previewY = previewPane.top + theme_.px(12);
+            if (textRight > textLeft) {
+                drawText(RECT{textLeft, previewY, textRight,
+                              previewY + lineHeight},
+                         L"Markdown 预览", preview.headings[0],
+                         DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+                previewY += lineHeight + theme_.px(2);
+                drawText(RECT{textLeft, previewY, textRight,
+                              previewY + lineHeight},
+                         L"正文文本与强调色示例", preview.pageText,
+                         DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+                previewY += lineHeight;
+                drawText(RECT{textLeft, previewY, textRight,
+                              previewY + lineHeight},
+                         L"链接示例", preview.link,
+                         DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+                previewY += lineHeight + theme_.px(2);
+                RECT quoteBar{textLeft, previewY + theme_.px(3),
+                              textLeft + theme_.px(3),
+                              previewY + lineHeight - theme_.px(3)};
+                fill(quoteBar, preview.blockquoteBorder);
+                drawText(RECT{textLeft + theme_.px(10), previewY, textRight,
+                              previewY + lineHeight},
+                         L"引用文字示例", preview.blockquoteText,
+                         DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+                previewY += lineHeight + theme_.px(4);
+
+                if (previewY + theme_.px(28) < previewPane.bottom) {
+                    RECT codeBlock{textLeft, previewY, textRight,
+                                   previewY + theme_.px(26)};
+                    fill(codeBlock, preview.codeBlockBg);
+                    fonts.use(theme_.monoFont());
+                    drawText(RECT{codeBlock.left + theme_.px(8), codeBlock.top,
+                                  codeBlock.right - theme_.px(8), codeBlock.bottom},
+                             L"const char* s = \"code\";", preview.codeBlockText,
+                             DT_SINGLELINE | DT_VCENTER | DT_LEFT |
+                                 DT_END_ELLIPSIS);
+                    fonts.use(theme_.uiFont());
+                    previewY += theme_.px(30);
+                }
+                if (previewY + lineHeight < previewPane.bottom) {
+                    RECT selection{textLeft, previewY,
+                                   std::min(textRight, textLeft + theme_.px(150)),
+                                   previewY + lineHeight};
+                    fill(selection, preview.selectionBg);
+                    drawText(RECT{selection.left + theme_.px(6), selection.top,
+                                  selection.right, selection.bottom},
+                             L"选中文字", preview.pageText,
+                             DT_SINGLELINE | DT_VCENTER | DT_LEFT |
+                                 DT_END_ELLIPSIS);
+                }
+            }
+        }
     }
-    const int sidebarW =
-        std::min(theme_.px(150),
-                 std::max(theme_.px(60),
-                          static_cast<int>(content.right - content.left) / 4));
-    RECT sidebar{content.left, content.top, content.left + sidebarW, content.bottom};
-    fill(sidebar, chrome.navBg);
-    RECT selectedNav{sidebar.left + theme_.px(6), sidebar.top + theme_.px(5),
-                     sidebar.right - theme_.px(6),
-                     sidebar.top + theme_.px(5) + theme_.px(18)};
-    fill(selectedNav, chrome.accentSoft);
-    ::SetTextColor(dc, ToColorRef(chrome.textPrimary));
-    ::SetBkColor(dc, ToColorRef(chrome.accentSoft));
-    RECT selectedText{selectedNav.left + theme_.px(6), selectedNav.top,
-                      selectedNav.right, selectedNav.bottom};
-    ::DrawTextW(dc, L"目录", -1, &selectedText,
-                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-    ::SetTextColor(dc, ToColorRef(chrome.textSecondary));
-    ::SetBkColor(dc, ToColorRef(chrome.navBg));
-    RECT navText{sidebar.left + theme_.px(12), selectedNav.bottom + theme_.px(4),
-                 sidebar.right - theme_.px(6), selectedNav.bottom + theme_.px(20)};
-    ::DrawTextW(dc, L"二级标题", -1, &navText,
-                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
 
-    RECT document{sidebar.right, content.top, content.right, content.bottom};
-    fill(document, chrome.surface);
-    const int scrollW = theme_.px(8);
-    RECT scrollbar{document.right - scrollW, document.top, document.right,
-                   document.bottom};
-    fill(scrollbar, preview.pageBg);
-    RECT thumb{scrollbar.left + 1, scrollbar.top + theme_.px(4), scrollbar.right - 1,
-               scrollbar.top + theme_.px(22)};
-    fill(thumb, theme::Blend(preview.pageBg, preview.pageText, 0.28));
-
-    const int textLeft = document.left + theme_.px(10);
-    const int textRight = scrollbar.left - theme_.px(6);
-    RECT line1{textLeft, document.top + theme_.px(4), textRight,
-               document.top + theme_.px(18)};
-    ::SetTextColor(dc, ToColorRef(chrome.textPrimary));
-    ::SetBkColor(dc, ToColorRef(chrome.surface));
-    ::DrawTextW(dc, L"正文示例 — 主题预览", -1, &line1,
-                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-    RECT line2{textLeft, line1.bottom + theme_.px(2), textRight,
-               line1.bottom + theme_.px(16)};
-    ::SetTextColor(dc, ToColorRef(chrome.textSecondary));
-    ::SetBkColor(dc, ToColorRef(chrome.surface));
-    ::DrawTextW(dc, L"次级文字与选中色", -1, &line2,
-                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-    RECT line3{textLeft, line2.bottom + theme_.px(2), textRight,
-               line2.bottom + theme_.px(16)};
-    ::SetTextColor(dc, ToColorRef(chrome.accent));
-    ::SetBkColor(dc, ToColorRef(chrome.surface));
-    ::DrawTextW(dc, L"强调色 / 链接", -1, &line3,
-                DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
-
-    frame(body, chrome.divider);
+    frame(area, chrome.divider);
 }
 
 LRESULT ThemeDialog::OnEraseBkgnd(UINT, WPARAM, LPARAM, BOOL&)
@@ -2112,6 +2332,10 @@ LRESULT ThemeDialog::OnDestroy(UINT, WPARAM, LPARAM, BOOL&)
     if (surfaceBrush_ != nullptr) {
         ::DeleteObject(surfaceBrush_);
         surfaceBrush_ = nullptr;
+    }
+    if (glyphFont_ != nullptr) {
+        ::DeleteObject(glyphFont_);
+        glyphFont_ = nullptr;
     }
     done_ = true;
     return 0;
@@ -2164,6 +2388,13 @@ LRESULT ThemeDialog::OnCommand(UINT, WPARAM wParam, LPARAM, BOOL&)
         return 0;
     case kApplyId:
         OnApply();
+        return 0;
+    case kPreviewExpandId:
+        if (code == BN_CLICKED) {
+            previewExpanded_ = !previewExpanded_;
+            UpdateExpandButtonText();
+            Layout();
+        }
         return 0;
     case kSearchId:
         if (code == EN_CHANGE) {
@@ -2241,6 +2472,10 @@ LRESULT ThemeDialog::OnMeasureItem(UINT, WPARAM, LPARAM lParam, BOOL&)
 LRESULT ThemeDialog::OnDrawItem(UINT, WPARAM, LPARAM lParam, BOOL&)
 {
     auto* draw = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+    if (draw != nullptr && draw->CtlID == kPreviewExpandId) {
+        PaintExpandButton(*draw);
+        return TRUE;
+    }
     const bool derived = draw != nullptr && draw->CtlID == kDerivedListId;
     if (draw == nullptr || (!derived && draw->CtlID != kColorListId)) {
         return FALSE;
@@ -2307,6 +2542,54 @@ LRESULT ThemeDialog::OnDrawItem(UINT, WPARAM, LPARAM lParam, BOOL&)
     return TRUE;
 }
 
+void ThemeDialog::PaintExpandButton(const DRAWITEMSTRUCT& draw)
+{
+    const bool pressed = (draw.itemState & ODS_SELECTED) != 0;
+    const bool highlighted = pressed || expandHovered_;
+    const ui::Color background = pressed     ? palette_.buttonPressed
+                                 : expandHovered_ ? palette_.buttonHover
+                                                  : palette_.windowBg;
+
+    HBRUSH backgroundBrush = ::CreateSolidBrush(ui::ToColorRef(background));
+    HPEN borderPen = ::CreatePen(
+        PS_SOLID, 1,
+        ui::ToColorRef(highlighted ? palette_.divider : background));
+    if (backgroundBrush != nullptr && borderPen != nullptr) {
+        HGDIOBJ oldBrush = ::SelectObject(draw.hDC, backgroundBrush);
+        HGDIOBJ oldPen = ::SelectObject(draw.hDC, borderPen);
+        ::RoundRect(draw.hDC, draw.rcItem.left, draw.rcItem.top,
+                    draw.rcItem.right, draw.rcItem.bottom, theme_.px(5),
+                    theme_.px(5));
+        ::SelectObject(draw.hDC, oldPen);
+        ::SelectObject(draw.hDC, oldBrush);
+    }
+    if (borderPen != nullptr) {
+        ::DeleteObject(borderPen);
+    }
+    if (backgroundBrush != nullptr) {
+        ::DeleteObject(backgroundBrush);
+    }
+
+    ::SetBkMode(draw.hDC, TRANSPARENT);
+    ::SetTextColor(draw.hDC,
+                   ui::ToColorRef(highlighted ? palette_.textPrimary
+                                              : palette_.textSecondary));
+    HGDIOBJ oldFont =
+        ::SelectObject(draw.hDC, glyphFont_ != nullptr ? glyphFont_ : theme_.uiFont());
+    // Segoe MDL2 Assets: E740 = FullScreen, E73F = BackToWindow.
+    const wchar_t* glyph = previewExpanded_ ? L"\xE73F" : L"\xE740";
+    RECT textRect = draw.rcItem;
+    ::DrawTextW(draw.hDC, glyph, -1, &textRect,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    ::SelectObject(draw.hDC, oldFont);
+
+    if ((draw.itemState & ODS_FOCUS) != 0) {
+        RECT focus = draw.rcItem;
+        ::InflateRect(&focus, -theme_.px(3), -theme_.px(3));
+        ::DrawFocusRect(draw.hDC, &focus);
+    }
+}
+
 LRESULT ThemeDialog::OnThemeSelectionChanged(int, LPNMHDR header, BOOL&)
 {
     auto* info = reinterpret_cast<NMLISTVIEW*>(header);
@@ -2352,6 +2635,13 @@ LRESULT ThemeDialog::OnThemeSelectionChanged(int, LPNMHDR header, BOOL&)
 LRESULT ThemeDialog::OnTabSelChange(int, LPNMHDR, BOOL&)
 {
     Layout();
+    return 0;
+}
+
+LRESULT ThemeDialog::OnPreviewTabSelChange(int, LPNMHDR, BOOL&)
+{
+    previewChrome_ = previewTabs_.GetCurSel() == 1;
+    UpdatePreviewMode();
     return 0;
 }
 
@@ -2445,6 +2735,50 @@ LRESULT CALLBACK ThemeDialog::DerivedListSubclassProc(HWND hwnd, UINT message,
         }
         default:
             break;
+        }
+    }
+    return ::DefSubclassProc(hwnd, message, wParam, lParam);
+}
+
+LRESULT CALLBACK ThemeDialog::ExpandButtonSubclassProc(HWND hwnd, UINT message,
+                                                       WPARAM wParam, LPARAM lParam,
+                                                       UINT_PTR, DWORD_PTR refData)
+{
+    auto* self = reinterpret_cast<ThemeDialog*>(refData);
+    if (self != nullptr) {
+        if (message == WM_MOUSEMOVE) {
+            if (!self->expandHovered_) {
+                self->expandHovered_ = true;
+                TRACKMOUSEEVENT tracking = {};
+                tracking.cbSize = sizeof(tracking);
+                tracking.dwFlags = TME_LEAVE;
+                tracking.hwndTrack = hwnd;
+                ::TrackMouseEvent(&tracking);
+                ::InvalidateRect(hwnd, nullptr, TRUE);
+            }
+        } else if (message == WM_MOUSELEAVE) {
+            self->expandHovered_ = false;
+            ::InvalidateRect(hwnd, nullptr, TRUE);
+        }
+
+        if (self->tooltip_.IsWindow()) {
+            switch (message) {
+            case WM_MOUSEMOVE:
+            case WM_LBUTTONDOWN:
+            case WM_LBUTTONUP:
+            case WM_MOUSELEAVE: {
+                MSG relay = {};
+                relay.hwnd = hwnd;
+                relay.message = message;
+                relay.wParam = wParam;
+                relay.lParam = lParam;
+                ::SendMessageW(self->tooltip_.m_hWnd, TTM_RELAYEVENT, 0,
+                               reinterpret_cast<LPARAM>(&relay));
+                break;
+            }
+            default:
+                break;
+            }
         }
     }
     return ::DefSubclassProc(hwnd, message, wParam, lParam);

@@ -68,6 +68,7 @@ public:
         MESSAGE_HANDLER(WM_NOTIFY, OnNotify)
         NOTIFY_HANDLER(kThemeListId, LVN_ITEMCHANGED, OnThemeSelectionChanged)
         NOTIFY_HANDLER(kTabsId, TCN_SELCHANGE, OnTabSelChange)
+        NOTIFY_HANDLER(kPreviewTabsId, TCN_SELCHANGE, OnPreviewTabSelChange)
     END_MSG_MAP()
 
 private:
@@ -109,6 +110,8 @@ private:
     static constexpr UINT kMaxWidthLabelId = 236;
     static constexpr UINT kCodeFontLabelId = 237;
     static constexpr UINT kCodeSizeLabelId = 238;
+    static constexpr UINT kPreviewTabsId = 240;
+    static constexpr UINT kPreviewExpandId = 242;
     static constexpr UINT kPreviewTimerId = 1;
     static constexpr UINT kPreviewDelayMs = 150;
 
@@ -153,12 +156,21 @@ private:
     void PaintChromeMock(HDC dc, const RECT& area);
     void RenderPreview();
     void SchedulePreview();
+    /// Positions the shared preview header (mode buttons + expand/collapse)
+    /// and the preview body below it. Used by both the full layout and the
+    /// lightweight splitter-drag path.
+    void PlacePreviewArea(int left, int width, int top, int bottom, bool live);
+    void UpdatePreviewMode();
+    void UpdateExpandButtonText();
+    void PaintExpandButton(const DRAWITEMSTRUCT& draw);
     std::wstring BuildDerivedTooltip(const DerivedRow& row) const;
     /// Updates the tooltip text for the derived row under the cursor. Called
     /// on every mouse move over the derived list, before the event is relayed.
     void UpdateDerivedTooltipAt(HWND list);
     static LRESULT CALLBACK DerivedListSubclassProc(HWND, UINT, WPARAM, LPARAM,
                                                     UINT_PTR, DWORD_PTR);
+    static LRESULT CALLBACK ExpandButtonSubclassProc(HWND, UINT, WPARAM, LPARAM,
+                                                     UINT_PTR, DWORD_PTR);
 
     int MinUpperHeight() const;
     int ClampSplitTop(int y, int* contentTop = nullptr, int* span = nullptr) const;
@@ -198,6 +210,7 @@ private:
     LRESULT OnNotify(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnThemeSelectionChanged(int, LPNMHDR, BOOL&);
     LRESULT OnTabSelChange(int, LPNMHDR, BOOL&);
+    LRESULT OnPreviewTabSelChange(int, LPNMHDR, BOOL&);
     LRESULT OnTooltipNeedText(int, LPNMHDR, BOOL&);
 
     ui::Theme theme_;
@@ -215,6 +228,8 @@ private:
     CButton saveButton_;
     CButton applyButton_;
     CButton cancelButton_;
+    CButton previewExpandButton_;
+    CTabCtrl previewTabs_;
 
     CTabCtrl tabs_;
     CEdit nameEdit_;
@@ -282,8 +297,17 @@ private:
     RECT splitterRect_ = {};
     RECT chromeMockRect_ = {};
     RECT previewRect_ = {};
+    /// Preferred settings-pane height. Zero until the first layout; afterwards
+    /// the pane keeps this height on resize so the extra space goes to the
+    /// preview below.
+    int upperHeightPx_ = 0;
+    bool previewChrome_ = false;
+    bool previewExpanded_ = false;
+    bool expandHovered_ = false;
     std::wstring tooltipText_;
-    double upperRatio_ = 0.58;
+    std::wstring expandTooltipText_;
+    /// Segoe MDL2 Assets font for the floating expand/collapse icon.
+    HFONT glyphFont_ = nullptr;
 };
 
 } // namespace awm
