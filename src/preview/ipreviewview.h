@@ -56,6 +56,9 @@ public:
     virtual void ScrollToAnchor(const std::string& anchor) = 0;
     /// Scrolls so the given 1-based Markdown source line is at the top.
     virtual void ScrollToSourceLine(double sourceLine) = 0;
+    /// Marks cached source positions stale after a DOM update that did not go
+    /// through SetHtml (for example an asynchronously inserted diagram image).
+    virtual void InvalidateScrollMap() {}
     /// True when the rendered document exposes source line positions.
     virtual bool SupportsSourceMapping() const = 0;
     /// Executes JavaScript. Returns false if the engine does not support it.

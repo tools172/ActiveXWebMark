@@ -20,6 +20,7 @@ extern CAppModule _Module;
 #include "highlight/pmhhighlighter.h"
 #include "history/recent_files.h"
 #include "markdown/cmarkengine.h"
+#include "diagramservice.h"
 #include "previewassets.h"
 #include "settings/isettings.h"
 #include "theme.h"
@@ -235,6 +236,7 @@ private:
 
     // Declared before the views so it outlives their DocumentViewServices.
     PreviewAssets previewAssets_;
+    std::unique_ptr<DiagramService> diagrams_;
 
     ui::Theme theme_;
     ui::TitleBar titleBar_;

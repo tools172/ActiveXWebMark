@@ -26,4 +26,8 @@ std::filesystem::path updateDirectory();
 /// the settings file, so AWM_SETTINGS_DIR isolates tests and portable runs.
 std::filesystem::path themesDirectory();
 
+/// Directory holding rendered Mermaid/PlantUML SVGs. Lives next to the
+/// settings file, so AWM_SETTINGS_DIR isolates tests and portable runs.
+std::filesystem::path diagramCacheDirectory();
+
 } // namespace awm

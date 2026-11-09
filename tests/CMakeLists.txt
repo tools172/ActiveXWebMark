@@ -13,6 +13,7 @@ add_executable(awm_core_tests
     core/document_session_test.cpp
     core/recent_files_test.cpp
     core/previewhtml_test.cpp
+    core/diagramblocks_test.cpp
     core/theme_catalog_test.cpp
     core/theme_custom_test.cpp
     core/update_test.cpp

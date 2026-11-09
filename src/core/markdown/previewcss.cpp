@@ -234,6 +234,18 @@ std::string BuildPreviewCss(const theme::ThemeDefinition& theme)
     css += ".token.entity{cursor:help;}";
     css += ".token.namespace{opacity:.7;}";
 
+    // Mermaid diagrams. The sidecar gives the SVG explicit width/height, so
+    // IE11 does not fall back to its 150px default; max-width keeps large
+    // diagrams inside the pane. Until the SVG is ready the source stays
+    // visible inside the placeholder.
+    css += ".awm-diagram{margin:0 0 16px;}";
+    css += ".awm-diagram pre{margin:0;}";
+    css += ".awm-diagram img{display:block;max-width:100%;height:auto;margin:0 auto;}";
+    css += ".awm-diagram-status{margin-top:4px;font-size:12px;opacity:.7;"
+           "text-align:center;color:";
+    css += ColorToCss(preview.pageText);
+    css += ";}";
+
     return css;
 }
 

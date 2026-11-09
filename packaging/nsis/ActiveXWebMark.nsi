@@ -21,6 +21,19 @@
   !define OUTDIR "..\..\dist"
 !endif
 
+; Vendored Mermaid sidecar (Node script + official mermaid bundle).
+!ifndef MERMAID_DIR
+  !define MERMAID_DIR "..\..\third_party\mermaid"
+!endif
+
+; PlantUML headless native runtime, staged by tools\plantuml-native\fetch.ps1.
+!ifndef PLANTUML_DIR
+  !define PLANTUML_DIR "..\..\build\plantuml-native\staging"
+!endif
+!if ! /FileExists "${PLANTUML_DIR}\plantuml-headless.exe"
+  !error "PlantUML native package missing. Run tools\plantuml-native\fetch.ps1 before packaging."
+!endif
+
 !define PRODUCT_NAME "ActiveXWebMark"
 !define EXE_NAME "ActiveXWebMark.exe"
 !define PUBLISHER "ActiveXWebMark"
@@ -62,6 +75,19 @@ Section "Install" SEC01
 
   SetOutPath "$INSTDIR"
   File "${EXE}"
+
+  ; Mermaid renderer: the app launches Node with this script when a diagram
+  ; is present. Missing Node/Edge simply leaves the fenced block as text.
+  SetOutPath "$INSTDIR\mermaid"
+  File "${MERMAID_DIR}\sidecar.cjs"
+  File "${MERMAID_DIR}\mermaid.min.js"
+  SetOutPath "$INSTDIR"
+
+  ; PlantUML headless native runtime (no user Java installation needed).
+  SetOutPath "$INSTDIR\plantuml"
+  File /r "${PLANTUML_DIR}\*.*"
+  SetOutPath "$INSTDIR"
+
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"
@@ -121,6 +147,10 @@ Section "Uninstall"
 
   Delete "$INSTDIR\${EXE_NAME}"
   Delete "$INSTDIR\uninstall.exe"
+  Delete "$INSTDIR\mermaid\sidecar.cjs"
+  Delete "$INSTDIR\mermaid\mermaid.min.js"
+  RMDir "$INSTDIR\mermaid"
+  RMDir /r "$INSTDIR\plantuml"
   RMDir "$INSTDIR"
 
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk"

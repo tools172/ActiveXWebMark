@@ -7,7 +7,11 @@
 #include <sstream>
 #include <utility>
 
+#include <nlohmann/json.hpp>
+
 #include "darkmode.h"
+#include "diagram/diagramblocks.h"
+#include "diagramservice.h"
 #include "theme/theme_catalog.h"
 #include "themeapply.h"
 
@@ -235,6 +239,10 @@ std::string buildFindScript(const std::wstring& query, const ui::FindBar::Option
 
 DocumentView::~DocumentView()
 {
+    // Late sidecar results must not post to a window that is going away.
+    if (callbackAlive_) {
+        callbackAlive_->store(false);
+    }
     if (::IsWindow(m_hWnd)) {
         ::KillTimer(m_hWnd, kRenderTimerId);
         ::KillTimer(m_hWnd, kScrollSyncTimerId);
@@ -707,6 +715,37 @@ h.innerHTML=lang+';'+spans+';'+((window.Prism&&Prism.languages)?1:0)+';'+dark+';
     return static_cast<LRESULT>(packed);
 }
 
+LRESULT DocumentView::OnDiagramResult(UINT, WPARAM, LPARAM lParam, BOOL&)
+{
+    std::unique_ptr<DiagramRenderResult> result(
+        reinterpret_cast<DiagramRenderResult*>(lParam));
+    if (!result || preview_ == nullptr || !IsWindow()) {
+        return 0;
+    }
+
+    const std::string element = nlohmann::json(result->elementId).dump();
+    if (result->ok) {
+        const std::string image = "<img src=\"" + EscapeHtmlAttribute(result->url) +
+                                  "\" alt=\"Diagram\">";
+        const std::string script =
+            "var e=document.getElementById(" + element +
+            ");if(e){e.innerHTML=" + nlohmann::json(image).dump() + ";}";
+        preview_->RunJavaScript(script);
+        preview_->InvalidateScrollMap();
+        // The sidecar can finish before IE has written the new document. A
+        // follow-up render reads the cache directly and converges either way.
+        ScheduleRender();
+    } else {
+        const std::string message = "图表渲染失败，已显示源码";
+        const std::string script =
+            "var e=document.getElementById(" + element +
+            ");if(e){var s=e.querySelector('.awm-diagram-status');if(s){s.textContent=" +
+            nlohmann::json(message).dump() + ";}}";
+        preview_->RunJavaScript(script);
+    }
+    return 0;
+}
+
 void DocumentView::FlushEditorText()
 {
     if (editor_ == nullptr || session_ == nullptr || !textDirty_) {
@@ -935,9 +974,11 @@ void DocumentView::Layout()
 
 void DocumentView::ScheduleRender()
 {
-    if (renderScheduled_) {
-        return;
-    }
+    // Always restart the debounce. A diagram result can arrive while another
+    // render is already queued; in that case the queued render may have been
+    // built before the SVG cache file appeared, so it would leave the
+    // placeholder in place. Restarting guarantees one render after the result.
+    ::KillTimer(m_hWnd, kRenderTimerId);
     renderScheduled_ = true;
     ::SetTimer(m_hWnd, kRenderTimerId, kRenderDelayMs, nullptr);
 }
@@ -971,16 +1012,61 @@ void DocumentView::RenderNow()
     editor_->ApplyHighlighting(source, services_.highlighter->highlight(source));
 
     if (preview_ != nullptr) {
+        const theme::ThemeDefinition& activeTheme = theme::ResolveTheme(settings_.theme);
+
+        std::string bodyHtml = result.bodyHtml;
+        DiagramTransformResult diagramResult;
+        if (services_.diagrams != nullptr) {
+            const bool diagramsAvailable = services_.diagrams->Available();
+            DiagramTransformOptions diagramOptions;
+            diagramOptions.mermaidEnabled =
+                diagramsAvailable && services_.diagrams->MermaidEnabled();
+            diagramOptions.plantumlEnabled =
+                diagramsAvailable && services_.diagrams->PlantUmlEnabled();
+            diagramOptions.cacheDirectory = services_.diagrams->cacheDirectory();
+            diagramOptions.mermaidTheme = activeTheme.dark ? "dark" : "default";
+            diagramOptions.mermaidVersion = DiagramService::kMermaidVersion;
+            diagramOptions.plantumlMode = services_.diagrams->PlantUmlBackend();
+            diagramOptions.plantumlServer = services_.diagrams->PlantUmlServer();
+            diagramOptions.plantumlExe = services_.diagrams->PlantUmlExe();
+            diagramOptions.plantumlVersion = services_.diagrams->PlantUmlVersion();
+            diagramOptions.plantumlDark = activeTheme.dark;
+            diagramResult = TransformDiagramBlocks(bodyHtml, diagramOptions);
+            bodyHtml = std::move(diagramResult.html);
+        }
+
         PreviewHtmlOptions options;
         options.baseFileUrl = BaseUrl();
-        options.theme = &theme::ResolveTheme(settings_.theme);
+        options.theme = &activeTheme;
         if (services_.previewAssets != nullptr) {
             options.inlineScript = services_.previewAssets->prismScript;
         }
-        std::string html = BuildPreviewHtml(result.bodyHtml, options);
-        if (html != lastHtml_) {
+        std::string html = BuildPreviewHtml(bodyHtml, options);
+        const bool htmlChanged = html != lastHtml_;
+        if (htmlChanged) {
             lastHtml_ = std::move(html);
             preview_->SetHtml(lastHtml_, options.baseFileUrl);
+
+            if (services_.diagrams != nullptr) {
+                for (const DiagramPendingBlock& block : diagramResult.pending) {
+                    auto alive = callbackAlive_;
+                    const HWND hwnd = m_hWnd;
+                    services_.diagrams->Request(
+                        block,
+                        [alive, hwnd](DiagramRenderResult renderResult) {
+                            auto* payload =
+                                new DiagramRenderResult(std::move(renderResult));
+                            if (!alive->load()) {
+                                delete payload;
+                                return;
+                            }
+                            if (!::PostMessageW(hwnd, DocumentView::kDiagramResultMessage,
+                                                0, reinterpret_cast<LPARAM>(payload))) {
+                                delete payload;
+                            }
+                        });
+                }
+            }
         }
     }
 

@@ -67,4 +67,9 @@ std::filesystem::path themesDirectory()
     return settingsFilePath().parent_path() / L"themes";
 }
 
+std::filesystem::path diagramCacheDirectory()
+{
+    return settingsFilePath().parent_path() / L"diagram-cache";
+}
+
 } // namespace awm

@@ -255,6 +255,17 @@ MainWindow::MainWindow() : registry_(DocumentFormatRegistry::createDefault())
     theme_.setPalette(MakePalette(initialTheme));
     SetProcessColorMode(initialTheme.dark ? ColorMode::Dark : ColorMode::Light);
     previewAssets_ = LoadPreviewAssets(::GetModuleHandleW(nullptr));
+    diagrams_ = std::make_unique<DiagramService>();
+    if (settings_ != nullptr) {
+        diagrams_->SetPlantUmlEnabled(
+            settings_->getBool("diagrams.plantuml.enabled", true));
+        diagrams_->SetPlantUmlServer(
+            settings_->get("diagrams.plantuml.server", "https://kroki.io"));
+        diagrams_->SetPlantUmlMode(
+            settings_->get("diagrams.plantuml.mode", "auto"));
+        diagrams_->SetPlantUmlExe(
+            settings_->get("diagrams.plantuml.exe", ""));
+    }
     startMaximized_ = placement_.valid && placement_.maximized;
 }
 
@@ -391,6 +402,7 @@ DocumentViewServices MainWindow::MakeServices()
         return CreatePreviewView(PreviewEngine::Ie);
     };
     services.previewAssets = &previewAssets_;
+    services.diagrams = diagrams_.get();
     services.onOpenLink = [](const std::string& url) {
         if (!url.empty()) {
             ::ShellExecuteW(nullptr, L"open", utf8ToWide(url).c_str(), nullptr, nullptr,

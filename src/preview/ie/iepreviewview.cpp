@@ -368,6 +368,11 @@ void IePreviewView::ScrollToSourceLine(double sourceLine)
     suppressScrollCallback_ = false;
 }
 
+void IePreviewView::InvalidateScrollMap()
+{
+    scrollMapDirty_ = true;
+}
+
 void IePreviewView::EnsureScrollMap()
 {
     if (scrollMapDirty_) {

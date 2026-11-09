@@ -11,6 +11,7 @@ add_library(awm_core STATIC
     markdown/cmarkengine.cpp
     markdown/previewcss.cpp
     markdown/previewhtml.cpp
+    diagram/diagramblocks.cpp
     theme/theme_catalog.cpp
     theme/theme_source.cpp
     theme/theme_json.cpp

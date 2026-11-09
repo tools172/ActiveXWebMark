@@ -69,6 +69,7 @@ public:
     void SetZoom(int percent) override;
     void ScrollToAnchor(const std::string& anchor) override;
     void ScrollToSourceLine(double sourceLine) override;
+    void InvalidateScrollMap() override;
     bool SupportsSourceMapping() const override { return hasSourceMap_; }
     bool RunJavaScript(const std::string& script) override;
     std::string RunJavaScriptForResult(const std::string& script,
