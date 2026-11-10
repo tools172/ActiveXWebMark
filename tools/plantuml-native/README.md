@@ -26,6 +26,11 @@ powershell -ExecutionPolicy Bypass -File tools\plantuml-native\fetch.ps1
 4. 复制 exe + DLL + `LICENSE.plantuml` 到 `build\plantuml-native\staging\`；
 5. 运行 `plantuml-headless.exe -version` 做冒烟测试。
 
+冒烟测试以输出中是否包含 `PlantUML version` 为准。PlantUML 的 `-version`
+会把 Graphviz 状态码作为进程退出码：本机没有可用的 `dot` 时返回 16，但版本信息
+仍然正常输出。因此 16 只记一条警告（没有 Graphviz 时只能生成时序图），不视为
+失败；其他非零退出码才算失败。
+
 成功后：
 
 - 应用构建（CMake POST_BUILD）会把 staging 复制到 exe 旁的 `plantuml\`；

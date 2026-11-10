@@ -175,10 +175,26 @@ if (-not (Test-Path $stagedExe)) {
 
 Log "smoke test: $stagedExe -version"
 $smokeOutput = & $stagedExe -version 2>&1
+$smokeExit = $LASTEXITCODE
 $smokeText = ($smokeOutput | Out-String)
-if ($LASTEXITCODE -ne 0 -or $smokeText -notmatch 'PlantUML version') {
+Log "smoke test exit=$smokeExit"
+
+# plantuml -version prints the version and then exits with the Graphviz status
+# from GraphvizUtils.addDotStatus(): 0 when dot is usable, 16 when it is not.
+# A build agent without Graphviz is expected to report 16, so treat it as a
+# warning; the version banner below still proves the native binary runs.
+if ($smokeText -notmatch 'PlantUML version') {
     Log "smoke test output: $smokeText"
-    Fail 'smoke-test' "plantuml-headless.exe -version failed (exit $LASTEXITCODE)"
+    Fail 'smoke-test' "plantuml-headless.exe -version printed no version banner (exit $smokeExit)"
+}
+if ($smokeExit -ne 0 -and $smokeExit -ne 16) {
+    Log "smoke test output: $smokeText"
+    Fail 'smoke-test' "plantuml-headless.exe -version failed (exit $smokeExit)"
+}
+if ($smokeExit -eq 16) {
+    $graphvizNote = 'Graphviz (dot) not found: -version exited 16 (only sequence diagrams)'
+    Log $graphvizNote
+    Write-Host "Note:    $graphvizNote" -ForegroundColor Yellow
 }
 Log "smoke test ok: $($smokeText.Trim())"
 
