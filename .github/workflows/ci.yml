@@ -11,8 +11,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
+      # Upstream has no Node 24 release yet (v1.13.0 still declares node20);
+      # the runner forces it onto Node 24, which currently works.
       - name: Setup MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
