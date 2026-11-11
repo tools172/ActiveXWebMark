@@ -352,6 +352,11 @@ void ScintillaEditor::SetupStyles()
     ::SendMessageW(hwnd_, SCI_SETUSETABS, FALSE, 0);
     ::SendMessageW(hwnd_, SCI_SETBUFFEREDDRAW, TRUE, 0);
 
+    // Add breathing room above and below each line so the source text is not
+    // cramped; Scintilla's default line height is quite tight for prose.
+    ::SendMessageW(hwnd_, SCI_SETEXTRAASCENT, px(3), 0);
+    ::SendMessageW(hwnd_, SCI_SETEXTRADESCENT, px(3), 0);
+
     UpdateMargins();
 }
 
