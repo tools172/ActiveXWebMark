@@ -1,4 +1,5 @@
 #include "fileassociation.h"
+#include "resource.h"
 
 #include <Windows.h>
 #include <ShlObj.h>
@@ -99,9 +100,88 @@ bool keyExists(HKEY root, const wchar_t* subKey)
     return true;
 }
 
+bool valueExists(HKEY root, const wchar_t* subKey, const wchar_t* name)
+{
+    HKEY key = nullptr;
+    if (::RegOpenKeyExW(root, subKey, 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS) {
+        return false;
+    }
+    DWORD type = 0;
+    DWORD bytes = 0;
+    const LONG result = ::RegQueryValueExW(key, name, nullptr, &type, nullptr, &bytes);
+    ::RegCloseKey(key);
+    return result == ERROR_SUCCESS;
+}
+
+bool deleteTree(HKEY root, const wchar_t* subKey)
+{
+    const LONG result = ::RegDeleteTreeW(root, subKey);
+    return result == ERROR_SUCCESS || result == ERROR_FILE_NOT_FOUND;
+}
+
+bool deleteValue(HKEY root, const wchar_t* subKey, const wchar_t* name)
+{
+    HKEY key = nullptr;
+    if (::RegOpenKeyExW(root, subKey, 0, KEY_SET_VALUE, &key) != ERROR_SUCCESS) {
+        return true;
+    }
+    const LONG result = ::RegDeleteValueW(key, name);
+    ::RegCloseKey(key);
+    return result == ERROR_SUCCESS || result == ERROR_FILE_NOT_FOUND;
+}
+
+// Per-user entries are only needed by portable copies. Once the installer has
+// written the machine-wide registration, remove stale per-user overrides so
+// they cannot mask the machine settings (notably the file-type icon).
+void removeUserRegistration()
+{
+    bool changed = false;
+    const wchar_t* trees[] = {
+        L"Software\\Classes\\Applications\\ActiveXWebMark.exe",
+        L"Software\\Classes\\ActiveXWebMark.Markdown",
+        L"Software\\ActiveXWebMark\\Capabilities",
+    };
+    for (const wchar_t* tree : trees) {
+        if (keyExists(HKEY_CURRENT_USER, tree)) {
+            changed |= deleteTree(HKEY_CURRENT_USER, tree);
+        }
+    }
+
+    if (valueExists(HKEY_CURRENT_USER, L"Software\\RegisteredApplications",
+                    kProductName)) {
+        changed |= deleteValue(HKEY_CURRENT_USER, L"Software\\RegisteredApplications",
+                               kProductName);
+    }
+
+    for (const wchar_t* extension : kExtensions) {
+        const std::wstring openWith =
+            std::wstring(L"Software\\Classes\\") + extension + L"\\OpenWithProgids";
+        if (valueExists(HKEY_CURRENT_USER, openWith.c_str(), kProgId)) {
+            changed |= deleteValue(HKEY_CURRENT_USER, openWith.c_str(), kProgId);
+        }
+    }
+
+    if (changed) {
+        ::SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+    }
+}
+
 bool hasMachineRegistration()
 {
     return keyExists(HKEY_LOCAL_MACHINE, kCapabilities);
+}
+
+bool machineUsesFileIcon()
+{
+    std::wstring icon;
+    if (!readString(HKEY_LOCAL_MACHINE,
+                    L"Software\\Classes\\Applications\\ActiveXWebMark.exe\\DefaultIcon",
+                    nullptr, icon)) {
+        return false;
+    }
+    const std::wstring suffix = L",-" + std::to_wstring(IDI_DOCICON);
+    return icon.size() >= suffix.size() &&
+           ::lstrcmpiW(icon.c_str() + icon.size() - suffix.size(), suffix.c_str()) == 0;
 }
 
 bool registrationMatches(HKEY root, const std::wstring& exe)
@@ -121,6 +201,7 @@ bool writeUserRegistration(const std::wstring& exe)
     const std::wstring classes = L"Software\\Classes\\";
     const std::wstring progIdKey = classes + kProgId;
     const std::wstring appKey = classes + L"Applications\\" + kExeName;
+    const std::wstring fileIcon = exe + L",-" + std::to_wstring(IDI_DOCICON);
 
     bool ok = true;
 
@@ -128,7 +209,7 @@ bool writeUserRegistration(const std::wstring& exe)
     ok &= setString(HKEY_CURRENT_USER, progIdKey, nullptr, kTypeName);
     ok &= setString(HKEY_CURRENT_USER, progIdKey, L"FriendlyTypeName", kTypeName);
     ok &= setString(HKEY_CURRENT_USER, progIdKey + L"\\DefaultIcon", nullptr,
-                    exe + L",0");
+                    fileIcon);
     ok &= setString(HKEY_CURRENT_USER, progIdKey + L"\\shell\\open", L"MultiSelectModel",
                     L"Player");
     ok &= setString(HKEY_CURRENT_USER, progIdKey + L"\\shell\\open\\command", nullptr,
@@ -138,7 +219,7 @@ bool writeUserRegistration(const std::wstring& exe)
     // Explorer "Open with" list.
     ok &= setString(HKEY_CURRENT_USER, appKey, L"FriendlyAppName", kProductName);
     ok &= setString(HKEY_CURRENT_USER, appKey, L"ApplicationCompany", kProductName);
-    ok &= setString(HKEY_CURRENT_USER, appKey + L"\\DefaultIcon", nullptr, exe + L",0");
+    ok &= setString(HKEY_CURRENT_USER, appKey + L"\\DefaultIcon", nullptr, fileIcon);
     ok &= setString(HKEY_CURRENT_USER, appKey + L"\\shell\\open", L"MultiSelectModel",
                     L"Player");
     ok &= setString(HKEY_CURRENT_USER, appKey + L"\\shell\\open\\command", nullptr,
@@ -196,6 +277,13 @@ bool ensureFileAssociationsRegistered()
     // The per-machine installer registration already covers the installed
     // executable. Only portable copies need a per-user registration.
     if (hasMachineRegistration()) {
+        // Remove stale per-user overrides, but only once the machine
+        // registration itself points at the file-type icon. This keeps an
+        // in-place upgrade from regressing while an older installer is still
+        // on disk.
+        if (machineUsesFileIcon()) {
+            removeUserRegistration();
+        }
         return true;
     }
 
