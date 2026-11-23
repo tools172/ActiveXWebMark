@@ -60,6 +60,10 @@ public:
     /// Marks cached source positions stale after a DOM update that did not go
     /// through SetHtml (for example an asynchronously inserted diagram image).
     virtual void InvalidateScrollMap() {}
+    /// Samples the current scroll position and reports changes through
+    /// onScrolledToLine. Engines that reliably raise scroll events can keep the
+    /// default no-op; IE/MSHTML needs this polling fallback.
+    virtual void PollScroll() {}
     /// True when the rendered document exposes source line positions.
     virtual bool SupportsSourceMapping() const = 0;
     /// Executes JavaScript. Returns false if the engine does not support it.

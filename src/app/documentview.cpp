@@ -246,6 +246,7 @@ DocumentView::~DocumentView()
     if (::IsWindow(m_hWnd)) {
         ::KillTimer(m_hWnd, kRenderTimerId);
         ::KillTimer(m_hWnd, kScrollSyncTimerId);
+        ::KillTimer(m_hWnd, kPreviewScrollPollTimerId);
     }
     if (scrollSync_) {
         scrollSync_->SetPreview(nullptr);
@@ -372,6 +373,7 @@ void DocumentView::SetViewSettings(const ViewSettings& settings)
     if (scrollSync_) {
         scrollSync_->SetEnabled(settings_.scrollSync);
     }
+    updatePreviewScrollPolling();
 }
 
 void DocumentView::ApplyTheme()
@@ -431,6 +433,8 @@ void DocumentView::Activate()
     ShowWindow(SW_SHOW);
     Layout();
     FocusPrimaryPane();
+    activated_ = true;
+    updatePreviewScrollPolling();
 }
 
 void DocumentView::Deactivate()
@@ -441,6 +445,8 @@ void DocumentView::Deactivate()
         }
         HideDragLine();
         ShowWindow(SW_HIDE);
+        activated_ = false;
+        updatePreviewScrollPolling();
     }
 }
 
@@ -915,6 +921,25 @@ void DocumentView::EnsurePreview()
         scrollSync_->SetPreview(preview_.get());
     }
     rendered_ = false;
+    updatePreviewScrollPolling();
+}
+
+void DocumentView::updatePreviewScrollPolling()
+{
+    // Use the activation flag rather than IsWindowVisible(): session restore
+    // activates the tab before the main window is shown, and a visible check
+    // here would leave the poll timer off for that tab until the next settings
+    // change.
+    const bool wanted = preview_ != nullptr && IsWindow() && activated_ &&
+                        settings_.scrollSync && settings_.showEditor;
+    if (wanted && !previewPollArmed_) {
+        if (::SetTimer(m_hWnd, kPreviewScrollPollTimerId, kPreviewScrollPollMs, nullptr) != 0) {
+            previewPollArmed_ = true;
+        }
+    } else if (!wanted && previewPollArmed_) {
+        ::KillTimer(m_hWnd, kPreviewScrollPollTimerId);
+        previewPollArmed_ = false;
+    }
 }
 
 void DocumentView::Layout()
@@ -1358,6 +1383,10 @@ LRESULT DocumentView::OnTimer(UINT, WPARAM wParam, LPARAM, BOOL&)
         ::KillTimer(m_hWnd, kScrollSyncTimerId);
         if (scrollSync_) {
             scrollSync_->OnTimerTick();
+        }
+    } else if (wParam == kPreviewScrollPollTimerId) {
+        if (preview_ != nullptr) {
+            preview_->PollScroll();
         }
     }
     return 0;

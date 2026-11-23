@@ -142,6 +142,7 @@ void IePreviewView::Destroy()
     scrollMap_ = ui::ScrollMap{};
     scrollMapDirty_ = true;
     hasSourceMap_ = false;
+    hasSampledScroll_ = false;
 }
 
 void IePreviewView::SetBounds(const RECT& rc)
@@ -165,6 +166,8 @@ void IePreviewView::SetBounds(const RECT& rc)
 
     if (restoreScroll) {
         RestoreScrollPosition(top, left);
+    } else {
+        hasSampledScroll_ = false;
     }
 
     // Resizing reflows the document, so all cached pixel positions change.
@@ -468,6 +471,31 @@ void IePreviewView::ScrollToSourceLine(double sourceLine)
     suppressScrollCallback_ = true;
     window->scrollTo(0, static_cast<long>(std::lround(y)));
     suppressScrollCallback_ = false;
+    UpdateScrollSample();
+}
+
+void IePreviewView::PollScroll()
+{
+    if (!ready_ || suppressScrollCallback_) {
+        return;
+    }
+
+    long top = 0;
+    long left = 0;
+    if (!GetScrollPosition(top, left)) {
+        return;
+    }
+    if (!hasSampledScroll_) {
+        lastSampledScrollTop_ = top;
+        hasSampledScroll_ = true;
+        return;
+    }
+    if (top == lastSampledScrollTop_) {
+        return;
+    }
+
+    lastSampledScrollTop_ = top;
+    handleScrollEvent();
 }
 
 void IePreviewView::InvalidateScrollMap()
@@ -612,6 +640,7 @@ void IePreviewView::WriteHtml(const std::wstring& html)
     lastHtml_ = html;
     scrollMapDirty_ = true;
     hasSourceMap_ = false;
+    hasSampledScroll_ = false;
     RestoreScrollPosition(scrollTop, scrollLeft);
     InstallLinkHandler();
     InstallCodeCopyButtons();
@@ -788,6 +817,7 @@ void IePreviewView::ApplyPendingAnchor()
         "var b=document.body;var y=r.top+(d.scrollTop||b.scrollTop||0)-16;"
         "window.scrollTo(0,y<0?0:y);}";
     RunJavaScript(script);
+    UpdateScrollSample();
 }
 
 bool IePreviewView::GetScrollPosition(long& top, long& left) const
@@ -824,6 +854,17 @@ void IePreviewView::RestoreScrollPosition(long top, long left)
     CComPtr<IHTMLWindow2> window = Window();
     if (window != nullptr) {
         window->scrollTo(left, top);
+    }
+    UpdateScrollSample();
+}
+
+void IePreviewView::UpdateScrollSample()
+{
+    long top = 0;
+    long left = 0;
+    if (GetScrollPosition(top, left)) {
+        lastSampledScrollTop_ = top;
+        hasSampledScroll_ = true;
     }
 }
 
@@ -862,6 +903,11 @@ void __stdcall IePreviewView::OnDocumentComplete(IDispatch* /*dispatch*/, VARIAN
 
 void __stdcall IePreviewView::OnWindowScroll(IHTMLEventObj* /*event*/)
 {
+    handleScrollEvent();
+}
+
+void IePreviewView::handleScrollEvent()
+{
     if (suppressScrollCallback_ || !callbacks_.onScrolledToLine) {
         return;
     }
@@ -891,6 +937,9 @@ void __stdcall IePreviewView::OnWindowResize(IHTMLEventObj* /*event*/)
     // Rebuild lazily: resize events can arrive rapidly while dragging a
     // splitter, and the pixel positions settle after the current message.
     scrollMapDirty_ = true;
+    // Reflow can move the scroll offset on its own; do not report that as a
+    // user scroll.
+    hasSampledScroll_ = false;
 }
 
 void __stdcall IePreviewView::OnBeforeNavigate2(IDispatch* /*dispatch*/, VARIANT* url,

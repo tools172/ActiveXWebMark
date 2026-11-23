@@ -76,6 +76,7 @@ public:
     void ScrollToAnchor(const std::string& anchor) override;
     void ScrollToSourceLine(double sourceLine) override;
     void InvalidateScrollMap() override;
+    void PollScroll() override;
     bool SupportsSourceMapping() const override { return hasSourceMap_; }
     bool RunJavaScript(const std::string& script) override;
     std::string RunJavaScriptForResult(const std::string& script,
@@ -117,6 +118,7 @@ public:
 private:
     bool AdviseBrowser();
     void UnadviseBrowser();
+    void handleScrollEvent();
     void AdviseWindowEvents();
     void UnadviseWindowEvents();
     void NavigateToBlank();
@@ -132,6 +134,7 @@ private:
     void RebuildScrollMap();
     bool GetScrollPosition(long& top, long& left) const;
     void RestoreScrollPosition(long top, long left);
+    void UpdateScrollSample();
 
     CComPtr<IHTMLDocument2> Document() const;
     CComPtr<IHTMLWindow2> Window() const;
@@ -155,6 +158,8 @@ private:
     bool scrollMapDirty_ = true;
     bool hasSourceMap_ = false;
     bool suppressScrollCallback_ = false;
+    long lastSampledScrollTop_ = 0;
+    bool hasSampledScroll_ = false;
     bool ready_ = false;
     bool navigating_ = false;
     bool advised_ = false;

@@ -68,6 +68,10 @@ public:
     static constexpr UINT kRenderDelayMs = 200;
     static constexpr UINT kScrollSyncTimerId = 2;
     static constexpr UINT kScrollSyncDelayMs = 30;
+    // IE/MSHTML does not raise window scroll events in this host, so the
+    // preview position is sampled while both panes are visible.
+    static constexpr UINT kPreviewScrollPollTimerId = 3;
+    static constexpr UINT kPreviewScrollPollMs = 80;
     // Posted after a splitter drag commits so the nav panel is repainted once
     // the resize/layout message burst has finished.
     static constexpr UINT kNavRepaintMessage = WM_APP + 0x51;
@@ -162,6 +166,7 @@ private:
     LRESULT OnRestoreEditorFocus(UINT, WPARAM, LPARAM, BOOL&);
 
     void EnsurePreview();
+    void updatePreviewScrollPolling();
     void Layout();
     void ScheduleRender();
     void RenderNow();
@@ -205,6 +210,8 @@ private:
     bool rendered_ = false;
     bool renderScheduled_ = false;
     bool reportedDirty_ = false;
+    bool activated_ = false;
+    bool previewPollArmed_ = false;
     /// Cleared in the destructor so late sidecar callbacks do not post to a
     /// destroyed window.
     std::shared_ptr<std::atomic<bool>> callbackAlive_ =
