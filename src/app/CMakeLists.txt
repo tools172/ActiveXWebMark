@@ -1,9 +1,11 @@
 # awm_app — WTL executable.
 #
-# The icon resource is generated next to the build tree so the .rc file can
-# point at the icon with an absolute path (rc.exe resolves relative resource
-# paths against its working directory, not against the .rc file).
+# Icon resources are referenced with absolute paths in the generated .rc file
+# (rc.exe resolves relative resource paths against its working directory, not
+# against the .rc file). app.ico is the application icon; doc.ico is the
+# Markdown file-type icon used by the shell association.
 set(AWM_APP_ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/app.ico")
+set(AWM_DOC_ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/doc.ico")
 set(AWM_PRISM_JS "${CMAKE_SOURCE_DIR}/third_party/prism/prism.bundle.min.js")
 set(AWM_MERMAID_DIR "${CMAKE_SOURCE_DIR}/third_party/mermaid")
 set(AWM_MERMAID_SIDECAR "${AWM_MERMAID_DIR}/sidecar.cjs")
@@ -25,7 +27,7 @@ configure_file(app.rc.in "${CMAKE_CURRENT_BINARY_DIR}/app.rc" @ONLY)
 # Recompile the resource object when the icon or the Prism bundle changes
 # (generators that support OBJECT_DEPENDS; otherwise touch the generated .rc).
 set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/app.rc"
-    PROPERTIES OBJECT_DEPENDS "${AWM_APP_ICON};${AWM_PRISM_JS}")
+    PROPERTIES OBJECT_DEPENDS "${AWM_APP_ICON};${AWM_DOC_ICON};${AWM_PRISM_JS}")
 
 add_executable(awm_app WIN32
     "${CMAKE_CURRENT_BINARY_DIR}/app.rc"

@@ -106,7 +106,9 @@ Section "Install" SEC01
   ; confirms it in Settings > Default apps.
   WriteRegStr HKLM "Software\Classes\${PROGID}" "" "Markdown 文档"
   WriteRegStr HKLM "Software\Classes\${PROGID}" "FriendlyTypeName" "Markdown 文档"
-  WriteRegStr HKLM "Software\Classes\${PROGID}\DefaultIcon" "" "$INSTDIR\${EXE_NAME},0"
+  ; -103 = IDI_DOCICON (white paper / blue lines), so .md files differ from
+  ; the application icon embedded as resource 101.
+  WriteRegStr HKLM "Software\Classes\${PROGID}\DefaultIcon" "" "$INSTDIR\${EXE_NAME},-103"
   WriteRegStr HKLM "Software\Classes\${PROGID}\shell\open\command" "" '"$INSTDIR\${EXE_NAME}" "%1"'
   WriteRegStr HKLM "Software\Classes\${PROGID}\shell\open" "MultiSelectModel" "Player"
 
