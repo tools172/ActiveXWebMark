@@ -88,6 +88,8 @@ public:
     /// Posted by the Mermaid sidecar reader thread when a render finishes.
     /// LPARAM owns a heap-allocated DiagramRenderResult.
     static constexpr UINT kDiagramResultMessage = WM_APP + 0x55;
+    /// Posted after a preview rewrite to undo focus moves made by MSHTML.
+    static constexpr UINT kRestoreEditorFocusMessage = WM_APP + 0x56;
 
     ~DocumentView() override;
 
@@ -144,6 +146,7 @@ public:
         MESSAGE_HANDLER(kTestFindStateMessage, OnTestFindState)
         MESSAGE_HANDLER(kTestPreviewStateMessage, OnTestPreviewState)
         MESSAGE_HANDLER(kDiagramResultMessage, OnDiagramResult)
+        MESSAGE_HANDLER(kRestoreEditorFocusMessage, OnRestoreEditorFocus)
     END_MSG_MAP()
 
 private:
@@ -156,6 +159,7 @@ private:
     LRESULT OnTestFindState(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnTestPreviewState(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnDiagramResult(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnRestoreEditorFocus(UINT, WPARAM, LPARAM, BOOL&);
 
     void EnsurePreview();
     void Layout();

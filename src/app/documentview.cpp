@@ -755,6 +755,44 @@ LRESULT DocumentView::OnDiagramResult(UINT, WPARAM, LPARAM lParam, BOOL&)
     return 0;
 }
 
+LRESULT DocumentView::OnRestoreEditorFocus(UINT, WPARAM, LPARAM, BOOL&)
+{
+    if (editor_ == nullptr) {
+        return 0;
+    }
+
+    const HWND editor = editor_->hwnd();
+    if (editor == nullptr || !::IsWindow(editor)) {
+        return 0;
+    }
+
+    const HWND focus = ::GetFocus();
+    if (focus == editor) {
+        return 0;
+    }
+
+    // Only undo focus moves caused by the preview rewrite: focus dropped, or
+    // landed on the frame/DocumentView/preview. Never pull focus away from a
+    // control the user may have clicked (find bar, tabs, menus).
+    const HWND root = ::GetAncestor(m_hWnd, GA_ROOT);
+    const HWND previewHost = preview_ != nullptr ? preview_->hwnd() : nullptr;
+    const bool lostToPreview =
+        focus == nullptr || focus == root || focus == m_hWnd ||
+        (previewHost != nullptr &&
+         (focus == previewHost || ::IsChild(previewHost, focus) == TRUE));
+    if (!lostToPreview) {
+        return 0;
+    }
+
+    // If the user switched to another application, leave focus alone.
+    if (root == nullptr || ::GetForegroundWindow() != root) {
+        return 0;
+    }
+
+    ::SetFocus(editor);
+    return 0;
+}
+
 void DocumentView::FlushEditorText()
 {
     if (editor_ == nullptr || session_ == nullptr || !textDirty_) {
@@ -1009,6 +1047,13 @@ void DocumentView::RenderNow()
         return;
     }
 
+    // MSHTML can move focus to the WebBrowser control when its document is
+    // replaced. Remember who had focus so a live preview update cannot stop
+    // the user from typing.
+    const HWND focusBefore = ::GetFocus();
+    const bool editorHadFocus = focusBefore == editor_->hwnd();
+    bool previewRewritten = false;
+
     // Editing invalidates any queued scroll synchronization.
     if (scrollSync_) {
         scrollSync_->Suspend(300);
@@ -1065,6 +1110,7 @@ void DocumentView::RenderNow()
         if (htmlChanged) {
             lastHtml_ = std::move(html);
             preview_->SetHtml(lastHtml_, options.baseFileUrl);
+            previewRewritten = true;
 
             if (services_.diagrams != nullptr) {
                 for (const DiagramPendingBlock& block : diagramResult.pending) {
@@ -1093,6 +1139,17 @@ void DocumentView::RenderNow()
     // the find highlights on the fresh DOM.
     if (preview_ != nullptr && findBarVisible() && !findBar_.query().empty()) {
         OnFindQueryChanged(findBar_.query(), findBar_.options());
+    }
+
+    if (editorHadFocus && ::IsWindow(focusBefore)) {
+        // Undo synchronous focus theft, then re-check once the queue drains for
+        // the asynchronous case (MSHTML may post the focus change).
+        if (::GetFocus() != focusBefore) {
+            ::SetFocus(focusBefore);
+        }
+        if (previewRewritten) {
+            ::PostMessageW(m_hWnd, kRestoreEditorFocusMessage, 0, 0);
+        }
     }
 
     textDirty_ = false;
