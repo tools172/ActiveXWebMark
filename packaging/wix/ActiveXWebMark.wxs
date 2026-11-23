@@ -159,8 +159,10 @@
         <RegistryKey Root="HKLM" Key="Software\Classes\ActiveXWebMark.Markdown">
           <RegistryValue Type="string" Value="Markdown 文档" KeyPath="yes" />
           <RegistryValue Name="FriendlyTypeName" Type="string" Value="Markdown 文档" />
+          <!-- -103 = IDI_DOCICON: Markdown files use the white-paper icon,
+               while the application itself keeps the embedded app icon. -->
           <RegistryValue Key="DefaultIcon" Type="string"
-                         Value="[INSTALLFOLDER]ActiveXWebMark.exe,0" />
+                         Value="[INSTALLFOLDER]ActiveXWebMark.exe,-103" />
           <RegistryValue Key="shell\open" Name="MultiSelectModel" Type="string"
                          Value="Player" />
           <RegistryValue Key="shell\open\command" Type="string"
@@ -170,8 +172,10 @@
         <RegistryKey Root="HKLM" Key="Software\Classes\Applications\ActiveXWebMark.exe">
           <RegistryValue Name="FriendlyAppName" Type="string" Value="ActiveXWebMark" />
           <RegistryValue Name="ApplicationCompany" Type="string" Value="ActiveXWebMark" />
+          <!-- Windows often records the .md UserChoice against this ProgID,
+               so it needs the file-type icon as well (-103 = IDI_DOCICON). -->
           <RegistryValue Key="DefaultIcon" Type="string"
-                         Value="[INSTALLFOLDER]ActiveXWebMark.exe,0" />
+                         Value="[INSTALLFOLDER]ActiveXWebMark.exe,-103" />
           <RegistryValue Key="shell\open" Name="MultiSelectModel" Type="string"
                          Value="Player" />
           <RegistryValue Key="shell\open\command" Type="string"

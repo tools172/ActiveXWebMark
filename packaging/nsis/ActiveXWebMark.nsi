@@ -106,13 +106,18 @@ Section "Install" SEC01
   ; confirms it in Settings > Default apps.
   WriteRegStr HKLM "Software\Classes\${PROGID}" "" "Markdown 文档"
   WriteRegStr HKLM "Software\Classes\${PROGID}" "FriendlyTypeName" "Markdown 文档"
-  WriteRegStr HKLM "Software\Classes\${PROGID}\DefaultIcon" "" "$INSTDIR\${EXE_NAME},0"
+  ; -103 = IDI_DOCICON (white paper / blue lines), so .md files differ from
+  ; the application icon embedded as resource 101.
+  WriteRegStr HKLM "Software\Classes\${PROGID}\DefaultIcon" "" "$INSTDIR\${EXE_NAME},-103"
   WriteRegStr HKLM "Software\Classes\${PROGID}\shell\open\command" "" '"$INSTDIR\${EXE_NAME}" "%1"'
   WriteRegStr HKLM "Software\Classes\${PROGID}\shell\open" "MultiSelectModel" "Player"
 
   WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}" "FriendlyAppName" "${PRODUCT_NAME}"
   WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}" "ApplicationCompany" "${PUBLISHER}"
-  WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}\DefaultIcon" "" "$INSTDIR\${EXE_NAME},0"
+  ; Windows often records the .md UserChoice against Applications\ActiveXWebMark.exe
+  ; rather than our custom ProgID, so this DefaultIcon must use the file-type
+  ; icon too (-103 = IDI_DOCICON).
+  WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}\DefaultIcon" "" "$INSTDIR\${EXE_NAME},-103"
   WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}\shell\open" "MultiSelectModel" "Player"
   WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}\shell\open\command" "" '"$INSTDIR\${EXE_NAME}" "%1"'
   WriteRegStr HKLM "Software\Classes\Applications\${EXE_NAME}\SupportedTypes" ".md" ""
