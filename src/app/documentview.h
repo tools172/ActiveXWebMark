@@ -68,6 +68,10 @@ public:
     static constexpr UINT kRenderDelayMs = 200;
     static constexpr UINT kScrollSyncTimerId = 2;
     static constexpr UINT kScrollSyncDelayMs = 30;
+    // IE/MSHTML does not raise window scroll events in this host, so the
+    // preview position is sampled while both panes are visible.
+    static constexpr UINT kPreviewScrollPollTimerId = 3;
+    static constexpr UINT kPreviewScrollPollMs = 80;
     // Posted after a splitter drag commits so the nav panel is repainted once
     // the resize/layout message burst has finished.
     static constexpr UINT kNavRepaintMessage = WM_APP + 0x51;
@@ -88,6 +92,8 @@ public:
     /// Posted by the Mermaid sidecar reader thread when a render finishes.
     /// LPARAM owns a heap-allocated DiagramRenderResult.
     static constexpr UINT kDiagramResultMessage = WM_APP + 0x55;
+    /// Posted after a preview rewrite to undo focus moves made by MSHTML.
+    static constexpr UINT kRestoreEditorFocusMessage = WM_APP + 0x56;
 
     ~DocumentView() override;
 
@@ -144,6 +150,7 @@ public:
         MESSAGE_HANDLER(kTestFindStateMessage, OnTestFindState)
         MESSAGE_HANDLER(kTestPreviewStateMessage, OnTestPreviewState)
         MESSAGE_HANDLER(kDiagramResultMessage, OnDiagramResult)
+        MESSAGE_HANDLER(kRestoreEditorFocusMessage, OnRestoreEditorFocus)
     END_MSG_MAP()
 
 private:
@@ -156,8 +163,10 @@ private:
     LRESULT OnTestFindState(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnTestPreviewState(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnDiagramResult(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnRestoreEditorFocus(UINT, WPARAM, LPARAM, BOOL&);
 
     void EnsurePreview();
+    void updatePreviewScrollPolling();
     void Layout();
     void ScheduleRender();
     void RenderNow();
@@ -201,6 +210,8 @@ private:
     bool rendered_ = false;
     bool renderScheduled_ = false;
     bool reportedDirty_ = false;
+    bool activated_ = false;
+    bool previewPollArmed_ = false;
     /// Cleared in the destructor so late sidecar callbacks do not post to a
     /// destroyed window.
     std::shared_ptr<std::atomic<bool>> callbackAlive_ =

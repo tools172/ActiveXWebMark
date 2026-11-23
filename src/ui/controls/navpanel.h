@@ -44,6 +44,8 @@ public:
         MESSAGE_HANDLER(WM_PAINT, OnPaint)
         MESSAGE_HANDLER(WM_ERASEBKGND, OnEraseBkgnd)
         MESSAGE_HANDLER(WM_SIZE, OnSize)
+        MESSAGE_HANDLER(WM_TIMER, OnTimer)
+        MESSAGE_HANDLER(WM_SHOWWINDOW, OnShowWindow)
         NOTIFY_HANDLER(kTreeId, TVN_SELCHANGED, OnSelChanged)
     END_MSG_MAP()
 
@@ -51,12 +53,32 @@ private:
     LRESULT OnPaint(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnEraseBkgnd(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnSize(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnTimer(UINT, WPARAM, LPARAM, BOOL&);
+    LRESULT OnShowWindow(UINT, WPARAM, LPARAM, BOOL&);
     LRESULT OnSelChanged(int, LPNMHDR, BOOL&);
+
+    static LRESULT CALLBACK TreeSubclassProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR,
+                                             DWORD_PTR);
+    void onTreeMessage(HWND tree, UINT message, WPARAM wParam, LPARAM lParam);
+    int itemIndexAt(POINT clientPoint) const;
+    bool isLabelTruncated(HTREEITEM item) const;
+    void armHover();
+    void dismissHover();
+    void showTooltip(int index);
+    void hideTooltip();
+    HFONT tooltipFont() const;
 
     void applyTheme();
     void layoutChildren();
 
     CTreeViewCtrl tree_;
+    CToolTipCtrl tooltip_;
+    TOOLINFOW toolInfo_ = {};
+    std::wstring tooltipText_;
+    int hoverIndex_ = -1;
+    bool trackingMouse_ = false;
+    bool tooltipVisible_ = false;
+    bool hoverTimerArmed_ = false;
     const Theme* theme_ = nullptr;
     std::vector<Item> items_;
     std::vector<HTREEITEM> handles_; ///< Indexed by flat outline index.
